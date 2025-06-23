@@ -159,9 +159,18 @@ class MCTSTrainer(TSRLTrainer):
         cur_node: MCTSNode,
         solution: tuple = None,
         cur_max_new_tokens: int = 32,
-    ) -> dict[str, Any]:
-        exec(f'''import pickle\nwith open('{self.args.output_dir}/mcts_rst.pkl', 'wb') as f: \n    pickle.dump(cur_node, f)''')
-        
+    ) -> dict[str, Any]: 
+        #exec(f'''import pickle\nwith open('{self.args.output_dir}/mcts_rst.pkl', 'wb') as f: \n    pickle.dump(cur_node, f)''')
+        exec(f'''
+            import pickle
+            with open('{self.args.output_dir}/mcts_rst.pkl', 'wb') as f:
+                pickle.dump({{
+                    'cur_node': cur_node,
+                    'prompt': prompt,
+                    'solution': solution
+                }}, f)
+        ''')
+
         ## CH: go back to root
         while cur_node.depth:
             cur_node = cur_node.parent
