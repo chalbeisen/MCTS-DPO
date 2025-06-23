@@ -58,11 +58,12 @@ class MathQADataset(RawDataset):
                     self.data.append(dt)
         else:
             gsm8k = load_dataset('openai/gsm8k', 'main', split=self.SPLIT, trust_remote_code=True)
-            math = load_dataset('hendrycks/competition_math', split=self.SPLIT, trust_remote_code=True)
-            try:
+            ## CH_adapted
+            #math = load_dataset('hendrycks/competition_math', split=self.SPLIT, trust_remote_code=True)
+            """try:
                 arithmo = get_math_data(load_dataset('akjindal53244/Arithmo-Data', split=self.SPLIT))
             except:
-                arithmo = get_math_data(jsonlines_load(os.path.join(DATA_DIR, 'arithmo/train.jsonl')))
+                arithmo = get_math_data(jsonlines_load(os.path.join(DATA_DIR, 'arithmo/train.jsonl')))"""
             if self.TYPE == 'sft':
                 arithmo, gsm8k, math = list_to_dict(arithmo), list_to_dict(gsm8k), list_to_dict(math)
                 ## use the corresponding training data seen in SFT
@@ -70,14 +71,16 @@ class MathQADataset(RawDataset):
                 self.data = [vv for v in mathqa_dict.values() for vv in v]
                 # self.data = get_arithmo_data(mathqa_dict)
             else:
-                self.data = gsm8k + math
+                ## CH_adapted
+                self.data = gsm8k #+ math
 
     def __getitem__(self, index: int) -> RawSample:
         data = self.data[index]
         prompt = data['question'] if 'question' in data else data['problem']
         return RawSample(
             input=prompt,
-            answer=data['solution'],
+            ## CH_adapted
+            answer= data['solution'] if 'solution' in data else data['answer'],
             final_answer=data.get('answer', None),
             final_answer_content=data.get('answer_content', data.get('answer', None)),
         )

@@ -53,7 +53,7 @@ gpu_vis=$1
 
 deepspeed --include localhost:$gpu_vis --master_port $MASTER_PORT \
 	--module mcts_rl.algorithms.mcts \
-	--train_datasets MathQA/train \
+	--train_datasets /train \
 	--model_type mistral \
 	--choose_worst \
 	--save_mcts_data \

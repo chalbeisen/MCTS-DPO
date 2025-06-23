@@ -538,9 +538,18 @@ class StepLMConfig(SearchConfig):
                     gt_ans = self.example["answer"]
                 else:
                     ## for cases (MCQ) where only final answers are available
+
+                    ##CH_adapted
+                    if self.example['answer'] != self.example['answer_content']:
+                        gt_ans = [f"({self.example['answer']})", self.example['answer_content']]
+                        solution = f'The answer is {gt_ans[0]} {gt_ans[1]}'
+                    else:
+                        gt_ans = [f"({self.example['answer']})"]
+                        solution = f'The answer is {gt_ans[0]}'
+                    """
                     gt_ans = [f"({self.example['answer']})", self.example['answer_content']] \
                         if self.example['answer'] != self.example['answer_content'] else [f"({self.example['answer']})"]
-                    solution = f'The answer is {gt_ans[0]} {gt_ans[1]}'
+                    solution = f'The answer is {gt_ans[0]} {gt_ans[1]}'"""
                 
                 if self.reward_model is not None:
                     eval_prompt = REWARD_EVAL_PROMPT.format(input=input_txt, prompt=init_answer + step, 

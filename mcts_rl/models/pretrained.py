@@ -185,7 +185,8 @@ def load_pretrained_models(  # pylint: disable=too-many-arguments
         device_map=device_map,
         torch_dtype=dtype,
         trust_remote_code=trust_remote_code,
-        token="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",
+        token="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",
+        #use_auth_token="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",
         **auto_model_kwargs,
     )
     tokenizer = AutoTokenizer.from_pretrained(
@@ -196,7 +197,8 @@ def load_pretrained_models(  # pylint: disable=too-many-arguments
         padding_side=padding_side,
         trust_remote_code=trust_remote_code,
         use_fast=(model.config.model_type != 'llama'),
-        token="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",
+        token="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",
+        #use_auth_token="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",
         **auto_tokenizer_kwargs,
     )
     resize_tokenizer_embedding(tokenizer=tokenizer, model=model)

@@ -10,8 +10,11 @@ ROOT_DIR="$(dirname "${SCRIPT_DIR}")"
 export PYTHONPATH="${ROOT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
 export LOGLEVEL="${LOGLEVEL:-WARNING}"
 
-ACTOR_MODEL_NAME_OR_PATH="meta-llama/Meta-Llama-3-8B-Instruct"
-ACTOR_REF_MODEL_NAME_OR_PATH="meta-llama/Meta-Llama-3-8B-Instruct"
+#ACTOR_MODEL_NAME_OR_PATH="meta-llama/Meta-Llama-3-8B-Instruct"
+#ACTOR_REF_MODEL_NAME_OR_PATH="meta-llama/Meta-Llama-3-8B-Instruct"
+
+ACTOR_MODEL_NAME_OR_PATH="TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+ACTOR_REF_MODEL_NAME_OR_PATH="TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 
 OUTPUT_DIR="MCTS-DPO/outputs/checkpoints/arithmetic/llama3-cdpo-2x2-gtsft"
 unset HOSTFILE
@@ -52,9 +55,10 @@ exec 1> >(tee "${OUTPUT_DIR}/stdout.log" >&1) 2> >(tee "${OUTPUT_DIR}/stderr.log
 
 gpu_vis=$1
 
-deepspeed --include localhost:$gpu_vis --master_port $MASTER_PORT \
+#--train_datasets MathQA/train \
+deepspeed --include localhost:0 --master_port $MASTER_PORT \
 	--module mcts_rl.algorithms.mcts \
-	--train_datasets MathQA/train \
+	--train_datasets GSM8K/train \
 	--model_type llama3 \
 	--choose_worst \
 	--save_mcts_data \

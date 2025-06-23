@@ -1,5 +1,5 @@
 torch >= 1.13
-transformers >= 4.28
+transformers == 4.40
 datasets
 tokenizers >= 0.13.3
 accelerate
@@ -17,3 +17,5 @@ nltk
 peft
 bert_score
 graphviz
+
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118 --upgrade

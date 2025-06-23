@@ -104,6 +104,7 @@ class MCTSTrainer(TSRLTrainer):
         self.mcts_searcher.search_config.use_code = ('\nprint(' in solution)
         if self.mcts_searcher.search_algo.policy_model is None or self.global_step % self.args.iteration_interval == 0:
             self.mcts_searcher.search_algo.policy_model = self.actor_reference_model if self.args.offline else self.actor_model
+
         target_probs, Q_values, r_values, base_values, visit_counts, select_indexes = [], [], [], [], [], []
         cur_node = None
         while cur_node is None or not cur_node.is_terminal:
@@ -161,6 +162,7 @@ class MCTSTrainer(TSRLTrainer):
     ) -> dict[str, Any]:
         exec(f'''import pickle\nwith open('{self.args.output_dir}/mcts_rst.pkl', 'wb') as f: \n    pickle.dump(cur_node, f)''')
         
+        ## CH: go back to root
         while cur_node.depth:
             cur_node = cur_node.parent
         

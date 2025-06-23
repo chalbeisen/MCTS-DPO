@@ -289,7 +289,7 @@ def check_available(rl_batch, max_tokens=512, eos_token_id=2, to_filter=False):
             return False
         if rl_batch['input_ids_list'][-1].size(-1) >= max_tokens and eos_token_id not in rl_batch['input_ids_list'][-1][-1]:
             return False
-        return rl_batch.get('prediction', [False])[-1] > 0.8 # or random.random() < .1
+        return random.random() < .1 # or rl_batch.get('prediction', [False])[-1] > 0.8
     input_ids_list = rl_batch['input_ids_list']
     counts = [
         input_ids.size(0) >= 2 and input_ids.size(-1) <= max_tokens and (input_ids[0] != input_ids[1]).nonzero().size(0)
