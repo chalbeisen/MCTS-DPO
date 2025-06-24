@@ -347,7 +347,7 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
     def split_tsrl_micro_batches(
         self,
         prompt_only_batch: PromptOnlyBatch | PromptOnlyPostBatch,
-    ) -> list[PromptOnlyBatch | PromptOnlyPostBatch]:
+        ) -> list[PromptOnlyBatch | PromptOnlyPostBatch]:
         """Split a batch of RL samples into micro-batches."""
         total_batch_size = prompt_only_batch['input_ids'].size(0) if not self.args.post \
             else len(prompt_only_batch['prompts_list'])
@@ -454,7 +454,8 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
         
         for epoch in range(self.args.epochs):
             if epoch < epochs_trained: continue
-            
+            # build a MCTS tree per prompt (and answer) in batch
+            batch_cnt = 0
             for prompt_only_batch, ptx_batch in zip(
                 self.prompt_only_dataloader,
                 itertools.chain.from_iterable([self.ptx_dataloader] * num_ptx_replicas),
@@ -467,6 +468,9 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
                 if not self.args.offline:
                     self.set_eval()
                 prompt_only_batch = to_device(prompt_only_batch, self.args.device)
+                
+                # CH: adapted
+                self.args.output_dir_vis = f"{self.args.output_dir}/mcts_saved_trees/epoch_{str(epoch)}/batch_cnt_{str(batch_cnt)}"
                 rl_batches = self.split_tsrl_micro_batches(prompt_only_batch)
                 if self.use_ptx:
                     ptx_batch = to_device(ptx_batch, self.args.device)
@@ -530,6 +534,8 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
                                 f'\n***** Evaluating at step {self.global_step} *****',
                             )
                             self.logger.log(self.eval(), step=self.global_step)
+
+                        batch_cnt += 1
 
             if self.args.need_eval: # and self.args.eval_strategy == 'epoch':
                 self.logger.print(

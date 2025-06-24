@@ -9,6 +9,7 @@ import math
 import torch
 import numpy as np
 from copy import deepcopy
+import pickle
 
 from mcts_rl.algorithms.mcts.mcts.base import (
     State, Action, Example, 
@@ -207,10 +208,16 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
                 break
             node = self._puct_select(path[-1])
             path.append(node)
-            exec(f'''import pickle\nwith open(f'{output_dir}/mcts_rst_{str(it_cnt)}.pkl', 'wb') as f: \n    pickle.dump({{'cur_node': node, 'path': path}}, f)''')
+
+            with open(f'{output_dir}/mcts_rst_{it_cnt}.pkl', 'wb') as f:
+                pickle.dump({'cur_node': self.root, 'path': path}, f)
+
             it_cnt += 1
         self._back_propagate(path)
-        exec(f'''import pickle\nwith open(f'{output_dir}/mcts_rst_{str(it_cnt)}_bckp.pkl', 'wb') as f: \n    pickle.dump({{'cur_node': node, 'path': path}}, f)''')
+
+        with open(f'{output_dir}/mcts_rst_{it_cnt}_bckp.pkl', 'wb') as f:
+            pickle.dump({'cur_node': self.root, 'path': path}, f)
+
         return path
 
     def iterate(self, node: MCTSNode) -> list[MCTSNode]:
@@ -308,16 +315,21 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
             if self.output_trace_in_each_iter:
                 self.trace_in_each_iter.append(deepcopy(path))
 
-    def search_and_save_tree(self, output_dir: str):
+    def search_and_save_tree(self, args):
         if self.root is None:
             self.root = MCTSNode(state=self.world_model.init_state(), action=None, parent=None, length_penalty=self.length_penalty)
         if self.output_trace_in_each_iter:
             self.trace_in_each_iter = []
 
         n_iters = self.n_iters if self.root.depth else self.n_iters * 4     # iterate more at the starting point
-        output_dir = f'{output_dir}/mcts_saved_trees'
+        output_dir = args['output_dir']
+        os.makedirs(output_dir,exist_ok=True)
+
+        with open(f'{output_dir}/mcts_rst_prompt_answer.pkl', 'wb') as f:
+            pickle.dump({'input_ids': args['input_ids'], 'answer': args['answer'], 'reasoning': args['reasoning']}, f)
+
         for i in trange(n_iters, disable=self.disable_tqdm, desc='MCTS iteration', leave=False):
-            output_dir_iter = f'{output_dir}/{i}'
+            output_dir_iter = f"{output_dir}/{args['node_cnt']}/{i}"
             os.makedirs(output_dir_iter,exist_ok=True)
             path = self.iterate_and_save_tree(self.root, output_dir_iter)
             if self.output_trace_in_each_iter:
@@ -337,7 +349,7 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
         self.consider_diversity = False if self.search_config.n_actions == 1 else self.consider_diversity
 
         #self.search()
-        self.search_and_save_tree(kwargs['args'].output_dir)
+        self.search_and_save_tree(world_model.example)
         
         if self.output_trace_in_each_iter:
             trace_in_each_iter = self.trace_in_each_iter

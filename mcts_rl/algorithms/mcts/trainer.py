@@ -107,6 +107,7 @@ class MCTSTrainer(TSRLTrainer):
 
         target_probs, Q_values, r_values, base_values, visit_counts, select_indexes = [], [], [], [], [], []
         cur_node = None
+        node_cnt = 0
         while cur_node is None or not cur_node.is_terminal:
             if cur_node is not None and (self.tokenizer.eos_token_id in cur_node.action or self.tokenizer.convert_tokens_to_ids("<|eot_id|>") in cur_node.action):
                 cur_node.is_terminal = True
@@ -120,8 +121,9 @@ class MCTSTrainer(TSRLTrainer):
             mcts_rst = self.mcts_searcher({
                 'input_ids': seq, 'attention_mask': attn_msk,
                 'answer': gt_answer, 'reasoning': solution,
-                'answer_content': prompt_only_batch['answer_content'][0],
-            }, node=cur_node, args = self.args)
+                'answer_content': prompt_only_batch['answer_content'][0], 
+                'output_dir': self.args.output_dir_vis, 'node_cnt': f"node_{node_cnt}",
+            }, node=cur_node)
             pi, cur_node = mcts_rst.next_action_pi, mcts_rst.tree_state
             target_probs.append(pi)
             Q_values.append([child.Q for child in cur_node.children])
@@ -131,6 +133,8 @@ class MCTSTrainer(TSRLTrainer):
             
             cur_node = cur_node.children[mcts_rst.next_action_idx]
             select_indexes.append(mcts_rst.next_action_idx)
+
+            node_cnt += 1
             
             if self.args.n_actions == 1: break
         
