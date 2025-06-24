@@ -601,6 +601,7 @@ def main() -> None:
         bf16=args.bf16,
     )
 
+    args.training_type = 'mmcts'
     trainer = MCTSTrainer(args, ds_train_config, ds_eval_config)
     trainer.train()
     trainer.save()

@@ -348,8 +348,8 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
         self.search_config = search_config
         self.consider_diversity = False if self.search_config.n_actions == 1 else self.consider_diversity
 
-        #self.search()
-        self.search_and_save_tree(world_model.example)
+        self.search()
+        #self.search_and_save_tree(world_model.example)
         
         if self.output_trace_in_each_iter:
             trace_in_each_iter = self.trace_in_each_iter

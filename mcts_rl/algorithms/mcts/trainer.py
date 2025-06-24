@@ -29,17 +29,19 @@ from mcts_rl.algorithms.mcts.mcts import (
     StepLMWorldModel, 
     StepLMConfig, 
     SearchArgs, 
+    MMCTS,
+    MMCTSNode,
+    MMCTSConfig,
     MCTS,
     MCTSNode,
     MCTSConfig, 
     TreeConstructor,
 )
 
-
 class MCTSTrainer(TSRLTrainer):
     TRAINING_TYPE = 'mcts'
 
-    def init_mcts_searcher(self) -> None:
+    def init_mcts_searcher(self, training_type) -> None:
         world_model = StepLMWorldModel(
             max_length=self.generation_config.max_length,
             base_tokenizer=self.tokenizer,
@@ -69,16 +71,28 @@ class MCTSTrainer(TSRLTrainer):
             include_gt=(not self.args.not_include_gt),
             verbose=self.args.verbose,
         ))
-        mcts_algo = MCTS(MCTSConfig(
-            w_exp=self.args.w_exp,
-            depth_limit=self.args.depth_limit,
-            breadth_limit=self.args.breadth_limit,
-            n_iters=self.args.n_iters,
-            temperature=self.args.mcts_temperature,
-            temperature_decay_ratio=self.args.mcts_temperature_decay_ratio,
-            consider_diversity=(not self.args.no_consider_diversity),
-            length_penalty=self.args.mcts_length_penalty,
+        if training_type == 'mmcts':
+            mcts_algo = MMCTS(MMCTSConfig(
+                w_exp=self.args.w_exp,
+                depth_limit=self.args.depth_limit,
+                breadth_limit=self.args.breadth_limit,
+                n_iters=self.args.n_iters,
+                temperature=self.args.mcts_temperature,
+                temperature_decay_ratio=self.args.mcts_temperature_decay_ratio,
+                consider_diversity=(not self.args.no_consider_diversity),
+                length_penalty=self.args.mcts_length_penalty,
         ))
+        else:
+            mcts_algo = MCTS(MCTSConfig(
+                w_exp=self.args.w_exp,
+                depth_limit=self.args.depth_limit,
+                breadth_limit=self.args.breadth_limit,
+                n_iters=self.args.n_iters,
+                temperature=self.args.mcts_temperature,
+                temperature_decay_ratio=self.args.mcts_temperature_decay_ratio,
+                consider_diversity=(not self.args.no_consider_diversity),
+                length_penalty=self.args.mcts_length_penalty,
+            ))
         self.mcts_searcher = TreeConstructor(
             world_model=world_model, 
             search_config=search_cfg, 
@@ -165,7 +179,7 @@ class MCTSTrainer(TSRLTrainer):
         base_values: list[list[float]],
         visit_counts: list[list[int]],
         select_indexes: list[int],
-        cur_node: MCTSNode,
+        cur_node: MCTSNode|MMCTSNode,
         solution: tuple = None,
         cur_max_new_tokens: int = 32,
     ) -> dict[str, Any]: 
@@ -412,4 +426,3 @@ class MCTSTrainer(TSRLTrainer):
             'train/label_smoothing': sum(label_smoothing_values) / len(label_smoothing_values) if len(label_smoothing_values) else 0,
             'train/cur_max_new_tokens': cur_max_new_tokens,
         }
-    

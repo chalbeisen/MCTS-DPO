@@ -68,7 +68,7 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
         self,
         args: argparse.Namespace,
         ds_train_config: dict[str, Any],
-        ds_eval_config: dict[str, Any],
+        ds_eval_config: dict[str, Any]
     ) -> None:
         """Initialize trainer."""
         self.args = args
@@ -95,7 +95,7 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
             eos_token_id=self.tokenizer.eos_token_id,
             pad_token_id=self.tokenizer.pad_token_id,
         )
-        self.init_mcts_searcher()
+        self.init_mcts_searcher(self.args.training_type)
         dist.barrier()
         self.init_logger()
 
@@ -328,7 +328,7 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
             self.reward_model.eval()
 
     @abc.abstractmethod
-    def init_mcts_searcher(self) -> None:
+    def init_mcts_searcher(self, training_type: str) -> None:
         raise NotImplementedError
     
     def set_train(self, mode: bool = True) -> None:
@@ -470,8 +470,13 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
                 prompt_only_batch = to_device(prompt_only_batch, self.args.device)
                 
                 # CH: adapted
-                self.args.output_dir_vis = f"{self.args.output_dir}/mcts_saved_trees/epoch_{str(epoch)}/batch_cnt_{str(batch_cnt)}"
+                if self.args.training_type == "mmcts":
+                    self.args.output_dir_vis = f"{self.args.output_dir}/mmcts_saved_trees/epoch_{str(epoch)}/batch_cnt_{str(batch_cnt)}"
+                else:
+                    self.args.output_dir_vis = f"{self.args.output_dir}/mcts_saved_trees/epoch_{str(epoch)}/batch_cnt_{str(batch_cnt)}"
                 rl_batches = self.split_tsrl_micro_batches(prompt_only_batch)
+                batch_cnt += 1
+                
                 if self.use_ptx:
                     ptx_batch = to_device(ptx_batch, self.args.device)
                     ptx_batches = self.split_ptx_micro_batches(ptx_batch)
@@ -534,8 +539,6 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
                                 f'\n***** Evaluating at step {self.global_step} *****',
                             )
                             self.logger.log(self.eval(), step=self.global_step)
-
-                        batch_cnt += 1
 
             if self.args.need_eval: # and self.args.eval_strategy == 'epoch':
                 self.logger.print(
