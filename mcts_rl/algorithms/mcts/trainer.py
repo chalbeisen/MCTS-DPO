@@ -112,11 +112,16 @@ class MCTSTrainer(TSRLTrainer):
                 cur_node.is_terminal = True
                 break
             # MCTS for next step
+            """mcts_rst = self.mcts_searcher({
+                'input_ids': seq, 'attention_mask': attn_msk,
+                'answer': gt_answer, 'reasoning': solution,
+                'answer_content': prompt_only_batch['answer_content'][0],
+            }, node=cur_node)"""
             mcts_rst = self.mcts_searcher({
                 'input_ids': seq, 'attention_mask': attn_msk,
                 'answer': gt_answer, 'reasoning': solution,
                 'answer_content': prompt_only_batch['answer_content'][0],
-            }, node=cur_node)
+            }, node=cur_node, args = self.args)
             pi, cur_node = mcts_rst.next_action_pi, mcts_rst.tree_state
             target_probs.append(pi)
             Q_values.append([child.Q for child in cur_node.children])
@@ -161,15 +166,7 @@ class MCTSTrainer(TSRLTrainer):
         cur_max_new_tokens: int = 32,
     ) -> dict[str, Any]: 
         #exec(f'''import pickle\nwith open('{self.args.output_dir}/mcts_rst.pkl', 'wb') as f: \n    pickle.dump(cur_node, f)''')
-        exec(f'''
-            import pickle
-            with open('{self.args.output_dir}/mcts_rst.pkl', 'wb') as f:
-                pickle.dump({{
-                    'cur_node': cur_node,
-                    'prompt': prompt,
-                    'solution': solution
-                }}, f)
-        ''')
+        exec(f'''import pickle\nwith open('{self.args.output_dir}/mcts_rst.pkl', 'wb') as f: \n    pickle.dump({{'cur_node': cur_node,'prompt': prompt,'solution': solution}}, f)''')
 
         ## CH: go back to root
         while cur_node.depth:

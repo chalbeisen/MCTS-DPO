@@ -4,7 +4,7 @@ import itertools
 from tqdm import trange
 from copy import deepcopy
 from typing import Generic, Optional, NamedTuple, Callable, Union
-
+import os
 import math
 import torch
 import numpy as np
@@ -194,6 +194,25 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
             return probs, selected_idx, next_action_V, next_action_Q
         return probs, next_action_V, next_action_Q
     
+    def iterate_and_save_tree(self, node: MCTSNode, output_dir: str) -> list[MCTSNode]:
+        node.N += 1
+        path = self._select(node)
+        it_cnt = 0
+        while not self._is_terminal_with_depth_limit(path[-1]):
+            self._expand_and_evaluate(path[-1])
+            # ### debug mode
+            # if path[-1].parent is not None:
+            #     self._back_propagate(path)
+            if self._is_terminal_with_depth_limit(path[-1]) or len(path[-1].children) == 0:
+                break
+            node = self._puct_select(path[-1])
+            path.append(node)
+            exec(f'''import pickle\nwith open(f'{output_dir}/mcts_rst_{str(it_cnt)}.pkl', 'wb') as f: \n    pickle.dump({{'cur_node': node, 'path': path}}, f)''')
+            it_cnt += 1
+        self._back_propagate(path)
+        exec(f'''import pickle\nwith open(f'{output_dir}/mcts_rst_{str(it_cnt)}_bckp.pkl', 'wb') as f: \n    pickle.dump({{'cur_node': node, 'path': path}}, f)''')
+        return path
+
     def iterate(self, node: MCTSNode) -> list[MCTSNode]:
         node.N += 1
         path = self._select(node)
@@ -289,6 +308,21 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
             if self.output_trace_in_each_iter:
                 self.trace_in_each_iter.append(deepcopy(path))
 
+    def search_and_save_tree(self, output_dir: str):
+        if self.root is None:
+            self.root = MCTSNode(state=self.world_model.init_state(), action=None, parent=None, length_penalty=self.length_penalty)
+        if self.output_trace_in_each_iter:
+            self.trace_in_each_iter = []
+
+        n_iters = self.n_iters if self.root.depth else self.n_iters * 4     # iterate more at the starting point
+        output_dir = f'{output_dir}/mcts_saved_trees'
+        for i in trange(n_iters, disable=self.disable_tqdm, desc='MCTS iteration', leave=False):
+            output_dir_iter = f'{output_dir}/{i}'
+            os.makedirs(output_dir_iter,exist_ok=True)
+            path = self.iterate_and_save_tree(self.root, output_dir_iter)
+            if self.output_trace_in_each_iter:
+                self.trace_in_each_iter.append(deepcopy(path))
+
     def __call__(self,
                  world_model: WorldModel[State, Action, Example],
                  search_config: SearchConfig[State, Action, Example],
@@ -302,7 +336,8 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
         self.search_config = search_config
         self.consider_diversity = False if self.search_config.n_actions == 1 else self.consider_diversity
 
-        self.search()
+        #self.search()
+        self.search_and_save_tree(kwargs['args'].output_dir)
         
         if self.output_trace_in_each_iter:
             trace_in_each_iter = self.trace_in_each_iter
