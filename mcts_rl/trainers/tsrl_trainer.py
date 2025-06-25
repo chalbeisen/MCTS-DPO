@@ -95,7 +95,7 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
             eos_token_id=self.tokenizer.eos_token_id,
             pad_token_id=self.tokenizer.pad_token_id,
         )
-        self.init_mcts_searcher(self.args.training_type)
+        self.init_mcts_searcher()
         dist.barrier()
         self.init_logger()
 
@@ -470,10 +470,8 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
                 prompt_only_batch = to_device(prompt_only_batch, self.args.device)
                 
                 # CH: adapted
-                if self.args.training_type == "mmcts":
-                    self.args.output_dir_vis = f"{self.args.output_dir}/mmcts_saved_trees/epoch_{str(epoch)}/batch_cnt_{str(batch_cnt)}"
-                else:
-                    self.args.output_dir_vis = f"{self.args.output_dir}/mcts_saved_trees/epoch_{str(epoch)}/batch_cnt_{str(batch_cnt)}"
+                self.args.output_dir_vis = f"{self.args.output_dir}/epoch_{str(epoch)}/batch_cnt_{str(batch_cnt)}"
+
                 rl_batches = self.split_tsrl_micro_batches(prompt_only_batch)
                 batch_cnt += 1
                 

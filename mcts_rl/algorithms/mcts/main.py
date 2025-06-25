@@ -8,7 +8,7 @@ import torch.distributed as dist
 from transformers import SchedulerType
 from transformers.utils import is_torch_bf16_gpu_available, is_torch_tf32_available
 
-from mcts_rl.algorithms.mcts.trainer import MCTSTrainer
+from mcts_rl.algorithms.mcts.trainer import MCTSTrainer, MMCTSTrainer
 from mcts_rl.configs import get_deepspeed_eval_config, get_deepspeed_train_config
 from mcts_rl.datasets import parse_dataset
 from mcts_rl.logger import set_logger_level
@@ -601,8 +601,15 @@ def main() -> None:
         bf16=args.bf16,
     )
 
-    args.training_type = 'mmcts'
-    trainer = MCTSTrainer(args, ds_train_config, ds_eval_config)
+    training_type = 'mmcts'
+
+    if training_type == 'mmcts':
+        args.output_dir = f"{args.output_dir}/mmcts_saved_trees"
+        trainer = MMCTSTrainer(args, ds_train_config, ds_eval_config)
+    else:
+        args.output_dir = f"{args.output_dir}/mcts_saved_trees"
+        trainer = MCTSTrainer(args, ds_train_config, ds_eval_config)
+        
     trainer.train()
     trainer.save()
 

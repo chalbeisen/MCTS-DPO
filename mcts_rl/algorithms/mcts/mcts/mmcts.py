@@ -251,13 +251,11 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
         new_path = [node]
         node.N += 1
         it_cnt = 0
-        for i in range(len(path)-1):
-            if self._is_terminal_with_depth_limit(node):
-                return new_path
+        while not self._is_terminal_with_depth_limit(node):
             if node.children == None:
                 self._expand_and_evaluate(node)
-            node_puct_values = torch.tensor([float("inf") if child in node._untried_child_nodes else self._puct(child) for child in node.children])
-            
+
+            node_puct_values = torch.tensor([float("inf") if child.N == 0 else self._puct(child) for child in node.children])
             distribution = puct_distribution(node_puct_values, self.puct_inf_softening)
             #distribution = cap_distribution(distribution, (1+self.p_max)/len(node.children))
 
@@ -270,13 +268,13 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
                 node = child
                 new_path.append(node)
             else:
-                # TODO: check list index
-                if path[i+1] in node.children:
-                    node = path[i+1]
+                if it_cnt < len(path)-1 and path[it_cnt+1] in node.children:
+                    node = path[it_cnt+1]
                 else:
                     node = self._random_select(node)
-                new_path.append(node)
                     # self._puct_select(node.children)
+                new_path.append(node)
+                    
             with open(f'{output_dir}/mmcts_rst_{it_cnt}.pkl', 'wb') as f:
                 pickle.dump({'cur_node': self.root, 'path': new_path}, f)
 
@@ -311,6 +309,7 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
             idx = 0
         else:
             idx = random.randint(0, len(node.children)-1)
+
         return node.children[idx]
 
     def _expand_and_evaluate(self, node: MMCTSNode):
@@ -400,12 +399,14 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
             self.root = MMCTSNode(state=self.world_model.init_state(), action=None, parent=None, length_penalty=self.length_penalty)
 
         node = self.root
+        node.N += 1
         path = [node]
 
         while not self._is_terminal_with_depth_limit(path[-1]):
             if path[-1].children == None:
                 self._expand_and_evaluate(node)
             node = self._random_select(node)
+            node.N += 1
             path.append(node)
 
         with open(f"{output_dir}/mmcts_initial_path.pkl", 'wb') as f:
@@ -429,7 +430,7 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
         n_iters = self.n_iters if self.root.depth else self.n_iters * 4     # iterate more at the starting point
         path = self.initial_path
         for i in trange(n_iters, disable=self.disable_tqdm, desc='MMCTS iteration', leave=False):
-            output_dir_iter = f"{output_dir}/{args['node_cnt']}/{i}"
+            output_dir_iter = f"{output_dir}/{i}"
             os.makedirs(output_dir_iter,exist_ok=True)
             path = self.iterate_and_save_tree(path, output_dir_iter)
             if self.output_trace_in_each_iter:
@@ -441,8 +442,6 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
                  root_node: Optional[Union[MMCTSNode, int]] = None,
                  **kwargs) -> MMCTSResult:
 
-        if world_model.example['node_cnt']=="node_2":
-            print("test")
         self.world_model = world_model
         self.search_config = search_config
         self.root = root_node
@@ -456,17 +455,5 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
         #self.search()
         self.search_and_save_tree(world_model.example)
         
-        if self.output_trace_in_each_iter:
-            trace_in_each_iter = self.trace_in_each_iter
-        else:
-            trace_in_each_iter = None
-        
-        next_action_pi, selected_idx, next_action_V, next_action_Q = self._get_simulated_pi(self.root, return_selection=True)
-        
-        return MMCTSResult(tree_state=self.root,
-                          next_action_pi=next_action_pi,
-                          next_action_V=next_action_V,
-                          next_action_Q=next_action_Q,
-                          trace_in_each_iter=trace_in_each_iter,
-                          next_action_idx=selected_idx)
+        return self.root
 

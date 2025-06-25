@@ -9,7 +9,7 @@ def puct_distribution(puct_values: torch.Tensor, inf_value_cap_coeff: float = 10
     #sorted_puct = puct_values.sort().values
     infinite_puct = puct_values.abs() == float("inf")
     # normalize only if there are values that are not inf
-    if len(infinite_puct) != len(puct_values):
+    if len(puct_values[infinite_puct]) != len(puct_values):
         largest_finite_puct = puct_values[~infinite_puct].abs().max()
         capped_puct = puct_values.clone() / largest_finite_puct
         capped_puct[infinite_puct] = inf_value_cap_coeff * torch.sign(puct_values[infinite_puct])

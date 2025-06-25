@@ -32,6 +32,7 @@ from mcts_rl.algorithms.mcts.mcts import (
     MMCTS,
     MMCTSNode,
     MMCTSConfig,
+    MMCTSResult,
     MCTS,
     MCTSNode,
     MCTSConfig, 
@@ -41,7 +42,7 @@ from mcts_rl.algorithms.mcts.mcts import (
 class MCTSTrainer(TSRLTrainer):
     TRAINING_TYPE = 'mcts'
 
-    def init_mcts_searcher(self, training_type) -> None:
+    def init_mcts_searcher(self) -> None:
         world_model = StepLMWorldModel(
             max_length=self.generation_config.max_length,
             base_tokenizer=self.tokenizer,
@@ -71,19 +72,7 @@ class MCTSTrainer(TSRLTrainer):
             include_gt=(not self.args.not_include_gt),
             verbose=self.args.verbose,
         ))
-        if training_type == 'mmcts':
-            mcts_algo = MMCTS(MMCTSConfig(
-                w_exp=self.args.w_exp,
-                depth_limit=self.args.depth_limit,
-                breadth_limit=self.args.breadth_limit,
-                n_iters=self.args.n_iters,
-                temperature=self.args.mcts_temperature,
-                temperature_decay_ratio=self.args.mcts_temperature_decay_ratio,
-                consider_diversity=(not self.args.no_consider_diversity),
-                length_penalty=self.args.mcts_length_penalty,
-        ))
-        else:
-            mcts_algo = MCTS(MCTSConfig(
+        mcts_algo = MCTS(MCTSConfig(
                 w_exp=self.args.w_exp,
                 depth_limit=self.args.depth_limit,
                 breadth_limit=self.args.breadth_limit,
@@ -122,23 +111,16 @@ class MCTSTrainer(TSRLTrainer):
         target_probs, Q_values, r_values, base_values, visit_counts, select_indexes = [], [], [], [], [], []
         cur_node = None
         node_cnt = 0
-
         while cur_node is None or not cur_node.is_terminal:
             if cur_node is not None and (self.tokenizer.eos_token_id in cur_node.action or self.tokenizer.convert_tokens_to_ids("<|eot_id|>") in cur_node.action):
                 cur_node.is_terminal = True
                 break
             # MCTS for next step
-            """mcts_rst = self.mcts_searcher({
+            mcts_rst = self.mcts_searcher({
                 'input_ids': seq, 'attention_mask': attn_msk,
                 'answer': gt_answer, 'reasoning': solution,
                 'answer_content': prompt_only_batch['answer_content'][0],
-            }, node=cur_node)"""
-            mcts_rst = self.mcts_searcher({
-                    'input_ids': seq, 'attention_mask': attn_msk,
-                    'answer': gt_answer, 'reasoning': solution,
-                    'answer_content': prompt_only_batch['answer_content'][0], 
-                    'output_dir': self.args.output_dir_vis, 'node_cnt': f"node_{node_cnt}",
-                }, node=cur_node)
+                'output_dir': self.args.output_dir_vis, 'node_cnt': f"node_{node_cnt}"}, node=cur_node)
             pi, cur_node = mcts_rst.next_action_pi, mcts_rst.tree_state
             target_probs.append(pi)
             Q_values.append([child.Q for child in cur_node.children])
@@ -148,9 +130,8 @@ class MCTSTrainer(TSRLTrainer):
             
             cur_node = cur_node.children[mcts_rst.next_action_idx]
             select_indexes.append(mcts_rst.next_action_idx)
-
-            node_cnt += 1
             
+            node_cnt += 1 
             if self.args.n_actions == 1: break
         
         dist.barrier()
@@ -427,3 +408,116 @@ class MCTSTrainer(TSRLTrainer):
             'train/label_smoothing': sum(label_smoothing_values) / len(label_smoothing_values) if len(label_smoothing_values) else 0,
             'train/cur_max_new_tokens': cur_max_new_tokens,
         }
+    
+class MMCTSTrainer(MCTSTrainer):
+    def init_mcts_searcher(self) -> None:
+        world_model = StepLMWorldModel(
+            max_length=self.generation_config.max_length,
+            base_tokenizer=self.tokenizer,
+            generation_config=self.generation_config,
+        )
+        search_cfg = StepLMConfig(SearchArgs(
+            ref_policy_model=self.actor_reference_model,
+            base_tokenizer=self.tokenizer,
+            generation_config=self.generation_config,
+            n_actions=self.args.n_actions,
+            n_init_actions=self.args.n_init_actions,
+            breadth_limit=self.args.breadth_limit,
+            depth_limit=self.args.depth_limit,
+            force_terminating_on_depth_limit=self.args.force_terminating_on_depth_limit,
+            kl_coeff=self.args.kl_coeff,
+            disable_tqdm=False,
+            no_self_eval=self.args.no_self_eval,
+            reward_model=self.reward_model if self.use_reward_model else None,
+            reward_tokenizer=self.reward_tokenizer if self.use_reward_model else None,
+            use_code=self.args.use_code,
+            use_mcq=self.args.use_mcq,
+            eval_mode=self.args.eval_mode,
+            temperature=self.args.temperature,
+            init_temperature=self.args.init_temperature,
+            get_tp_zero=self.args.get_tp_zero,
+            model_type=self.args.model_type,
+            include_gt=(not self.args.not_include_gt),
+            verbose=self.args.verbose,
+        ))
+        mmcts_algo = MMCTS(MMCTSConfig(
+                w_exp=self.args.w_exp,
+                depth_limit=self.args.depth_limit,
+                breadth_limit=self.args.breadth_limit,
+                n_iters=self.args.n_iters,
+                temperature=self.args.mcts_temperature,
+                temperature_decay_ratio=self.args.mcts_temperature_decay_ratio,
+                consider_diversity=(not self.args.no_consider_diversity),
+                length_penalty=self.args.mcts_length_penalty,
+        ))
+
+        self.mmcts_searcher = TreeConstructor(
+            world_model=world_model, 
+            search_config=search_cfg, 
+            search_algo=mmcts_algo,
+        )
+
+    def tree_constructor(self, prompt_only_batch: PromptOnlyBatch | PromptOnlyPostBatch) -> list[dict[str, Any]]:
+
+        input_ids = prompt_only_batch['input_ids']
+        attention_mask = prompt_only_batch['attention_mask']
+        answer = prompt_only_batch['answer']
+        assert input_ids.size(0) == 1, '''Only support one instance per device.'''
+        seq, attn_msk = input_ids[0], attention_mask[0]
+        gt_answer, solution = answer[0], prompt_only_batch['reasoning'][0]
+        
+        if solution.strip():
+            self.mmcts_searcher.search_config.generation_config.max_new_tokens = min(
+                self.args.max_new_tokens,
+                max(self.generation_config.max_new_tokens // 4,
+                    len(self.tokenizer.encode(solution)) // max(1, self.args.depth_limit - 1))
+            )
+        
+        self.mmcts_searcher.search_config.use_code = ('\nprint(' in solution)
+        if self.mmcts_searcher.search_algo.policy_model is None or self.global_step % self.args.iteration_interval == 0:
+            self.mmcts_searcher.search_algo.policy_model = self.actor_reference_model if self.args.offline else self.actor_model
+
+        target_probs, Q_values, r_values, base_values, visit_counts, select_indexes = [], [], [], [], [], []
+
+        root = self.mmcts_searcher({
+                    'input_ids': seq, 'attention_mask': attn_msk,
+                    'answer': gt_answer, 'reasoning': solution,
+                    'answer_content': prompt_only_batch['answer_content'][0], 
+                    'output_dir': self.args.output_dir_vis,}, node=None)
+        
+        cur_node = root
+        while not cur_node.is_terminal:
+            if cur_node.action is not None and (self.tokenizer.eos_token_id in cur_node.action or self.tokenizer.convert_tokens_to_ids("<|eot_id|>") in cur_node.action):
+                cur_node.is_terminal = True
+                break
+            
+            next_action_pi, selected_idx, next_action_V, next_action_Q = self.mmcts_searcher.search_algo._get_simulated_pi(cur_node, return_selection=True)
+            
+            target_probs.append(next_action_pi)
+            Q_values.append([child.Q for child in cur_node.children])
+            r_values.append([child.r for child in cur_node.children])
+            base_values.append([child.value for child in cur_node.children])
+            visit_counts.append([child.N for child in cur_node.children])
+            
+            cur_node = cur_node.children[selected_idx]
+            select_indexes.append(selected_idx)
+            
+            if self.args.n_actions == 1: break
+        
+        dist.barrier()
+        
+        return [
+            self.post_tree_construct(
+                prompt=input_ids[idx],
+                target_probs=target_probs,
+                Q_values=Q_values,
+                r_values=r_values,
+                base_values=base_values,
+                visit_counts=visit_counts,
+                select_indexes=select_indexes,
+                cur_node=cur_node,
+                solution=(solution, gt_answer,),
+                cur_max_new_tokens=self.mmcts_searcher.search_config.generation_config.max_new_tokens,
+            )
+            for idx in range(input_ids.size(0))
+        ]
