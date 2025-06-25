@@ -252,11 +252,10 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
         node.N += 1
         it_cnt = 0
         for i in range(len(path)-1):
-            if new_path[-1].children == None:
-                self._expand_and_evaluate(new_path[-1])
-                if self._is_terminal_with_depth_limit(new_path[-1]):
-                    return new_path
-
+            if self._is_terminal_with_depth_limit(node):
+                return new_path
+            if node.children == None:
+                self._expand_and_evaluate(node)
             node_puct_values = torch.tensor([float("inf") if child in node._untried_child_nodes else self._puct(child) for child in node.children])
             
             distribution = puct_distribution(node_puct_values, self.puct_inf_softening)
@@ -272,17 +271,20 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
                 new_path.append(node)
             else:
                 # TODO: check list index
-                node = path[i+1]
+                if path[i+1] in node.children:
+                    node = path[i+1]
+                else:
+                    node = self._random_select(node)
                 new_path.append(node)
-            
+                    # self._puct_select(node.children)
             with open(f'{output_dir}/mmcts_rst_{it_cnt}.pkl', 'wb') as f:
-                pickle.dump({'cur_node': self.root, 'path': path}, f)
+                pickle.dump({'cur_node': self.root, 'path': new_path}, f)
 
             it_cnt += 1
         self._back_propagate(new_path)
 
         with open(f'{output_dir}/mmcts_rst_{it_cnt}_bckp.pkl', 'wb') as f:
-            pickle.dump({'cur_node': self.root, 'path': path}, f)
+            pickle.dump({'cur_node': self.root, 'path': new_path}, f)
 
         return new_path
 
@@ -305,11 +307,11 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
         return xnode
     
     def _random_select(self, node: MMCTSNode) -> MMCTSNode:
-        if len(node._untried_child_nodes) <= 1:
+        if len(node.children) - 1 == 0:
             idx = 0
         else:
-            idx = random.randint(0, len(node._untried_child_nodes)-1)
-        return node._untried_child_nodes.pop(idx)
+            idx = random.randint(0, len(node.children)-1)
+        return node.children[idx]
 
     def _expand_and_evaluate(self, node: MMCTSNode):
         """
@@ -390,36 +392,42 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
             if self.output_trace_in_each_iter:
                 self.trace_in_each_iter.append(deepcopy(path))
 
-    def search_and_save_tree(self, args):
-        """
-        build an initial path through tree randomly
-        then try to adapt that path for n_iters times
-        """
+    def set_initial_path(self, args) -> list[MMCTSNode]:
+        output_dir = args['output_dir']
+        os.makedirs(output_dir,exist_ok=True)
+
         if self.root is None:
             self.root = MMCTSNode(state=self.world_model.init_state(), action=None, parent=None, length_penalty=self.length_penalty)
-        if self.output_trace_in_each_iter:
-            self.trace_in_each_iter = []
 
-        path = []
         node = self.root
-        path.append(node)
+        path = [node]
 
-        output_dir = args['output_dir']
-        os.makedirs(f"{output_dir}/{args['node_cnt']}",exist_ok=True)
-
-        with open(f'{output_dir}/mmcts_rst_prompt_answer.pkl', 'wb') as f:
-            pickle.dump({'input_ids': args['input_ids'], 'answer': args['answer'], 'reasoning': args['reasoning']}, f)
-        
         while not self._is_terminal_with_depth_limit(path[-1]):
             if path[-1].children == None:
                 self._expand_and_evaluate(node)
             node = self._random_select(node)
             path.append(node)
 
-        with open(f"{output_dir}/{args['node_cnt']}/mmcts_initial_path.pkl", 'wb') as f:
+        with open(f"{output_dir}/mmcts_initial_path.pkl", 'wb') as f:
                 pickle.dump({'cur_node': self.root, 'path': path}, f)
 
+        return path
+
+    def search_and_save_tree(self, args):
+        """
+        build an initial path through tree randomly
+        then try to adapt that path for n_iters times
+        """
+        if self.output_trace_in_each_iter:
+            self.trace_in_each_iter = []
+
+        output_dir = args['output_dir']
+
+        with open(f'{output_dir}/mmcts_rst_prompt_answer.pkl', 'wb') as f:
+            pickle.dump({'input_ids': args['input_ids'], 'answer': args['answer'], 'reasoning': args['reasoning']}, f)
+
         n_iters = self.n_iters if self.root.depth else self.n_iters * 4     # iterate more at the starting point
+        path = self.initial_path
         for i in trange(n_iters, disable=self.disable_tqdm, desc='MMCTS iteration', leave=False):
             output_dir_iter = f"{output_dir}/{args['node_cnt']}/{i}"
             os.makedirs(output_dir_iter,exist_ok=True)
@@ -432,12 +440,17 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
                  search_config: SearchConfig[State, Action, Example],
                  root_node: Optional[Union[MMCTSNode, int]] = None,
                  **kwargs) -> MMCTSResult:
-        if root_node is None:
-            MMCTSNode.reset_id()
-            
-        self.root = root_node
+
+        if world_model.example['node_cnt']=="node_2":
+            print("test")
         self.world_model = world_model
         self.search_config = search_config
+        self.root = root_node
+
+        if root_node is None:
+            self.initial_path = self.set_initial_path(world_model.example)
+            MMCTSNode.reset_id()
+
         self.consider_diversity = False if self.search_config.n_actions == 1 else self.consider_diversity
 
         #self.search()
