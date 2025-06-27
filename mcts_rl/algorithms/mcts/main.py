@@ -607,13 +607,13 @@ def main() -> None:
         bf16=args.bf16,
     )
 
-    training_type = 'mmcts'
+    training_type = 'mcts'
 
     if training_type == 'mmcts':
-        args.output_dir = f"{args.output_dir}/mmcts_saved_trees"
+        args.output_dir = f"{args.output_dir}/mmcts_saved_trees_log_probs"
         trainer = MMCTSTrainer(args, ds_train_config, ds_eval_config)
     else:
-        args.output_dir = f"{args.output_dir}/mcts_saved_trees"
+        args.output_dir = f"{args.output_dir}/mcts_saved_trees_log_probs"
         trainer = MCTSTrainer(args, ds_train_config, ds_eval_config)
         
     trainer.train()

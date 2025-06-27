@@ -208,7 +208,6 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
                 break
             node = self._puct_select(path[-1])
             path.append(node)
-
             with open(f'{output_dir}/mcts_rst_{it_cnt}.pkl', 'wb') as f:
                 pickle.dump({'cur_node': self.root, 'path': path}, f)
 
@@ -253,7 +252,7 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
         xnode = max(node.children, key=self._puct)
         return xnode
 
-    def _expand_and_evaluate(self, node: MCTSNode):
+    def _expand_and_evaluate(self, node: MCTSNode, eval_method="log_probs"):
         if node.state is None:
             node.state = self.world_model.step(node.parent.state, node.action, node.log_probs)
             node.is_terminal = self.world_model.is_terminal(node.state)
@@ -268,6 +267,7 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
             action_batch.append(action)
             log_probs_batch.append(log_probs)
             ref_log_probs_batch.append(ref_log_probs)
+
         reward_value_batch = self.search_config.get_values(self.policy_model, node.state, action_batch, 
                                                            log_probs_batch, ref_log_probs_batch, 
                                                            add_kl=self.add_kl, parent_depth=node.depth,
@@ -275,6 +275,9 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
 
         children = []
         for (action, (log_probs, ref_log_probs), embs), (value, base_rewards, is_terminal) in zip(actions, reward_value_batch):
+            if eval_method == "log_probs":
+                log_prob = log_probs.sum().item()
+                value = log_prob
             child = MCTSNode(state=None, action=action, parent=node, 
                              base_rewards=base_rewards, value=value, 
                              embeddings=embs, log_probs=log_probs, ref_log_probs=ref_log_probs,
@@ -282,6 +285,11 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
             children.append(child)
         node.children = children if node.children is None else node.children + children
 
+
+        
+        return reward_value_batch
+
+    
     def _simulate(self, path: list[MCTSNode]):
         node = path[-1]
         while True:

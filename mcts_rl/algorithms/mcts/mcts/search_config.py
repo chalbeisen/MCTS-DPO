@@ -105,12 +105,36 @@ class StepLMConfig(SearchConfig):
         self.verbose = args.verbose
 
     def _gather_log_probabilities(self, logits: torch.Tensor, labels: torch.LongTensor) -> torch.Tensor:
-        """Gather log probabilities of the given labels from the logits."""
+        """Gather log probabilities of the given labels from the logits.
+        The input are the logits of the generated text (shape: (sequence length)) over the vocabulary size, therefore: (shape: (sequence_length, vocabulary size)).
+        So the softmax over logits gives the probability of each token in the vocabulary being chosen as the next token after generated_text[i] with i from 0 to sequence_length
+        Therefore logits[i, :] predicted distribution for the (i+1)th token in the sequence
+        The logits and labels are shifted by one. For example:
+
+        prompt: "What is the capital of france?"
+        pred_answer: "The capital of france is paris"
+
+        tokenized_pred_answ = tokenizer.decode(pred_answer)
+        tokenized_prompt = tokenizer.decode(prompt)
+        tokenized_text = tokenizer.decode(prompt+pred_answer)
+        logits = llm(tokenized_text).logits
+
+        # Now extract the logits from the predicted answer (generated text), shifted by one
+        # So pred_answ_logits contains the tokenized text: "?The capital of france is"
+        pred_answ_logits = logits[tokenized_prompt.size(-1)-1:-1, :]
+        
+        # Now if we do: _gather_log_probabilities(self, logits = pred_answ_logits, labels=tokenized_pred_answ)
+        # We extract for example the probability of seeing "The" after "?" and "capital" after "The" (because logits and labels are shifted by one)
+        """
         log_probs = F.log_softmax(logits.float(), dim=-1)
         log_probs_labels = log_probs.gather(dim=-1, index=labels.unsqueeze(dim=-1))
         return log_probs_labels.squeeze(dim=-1)
     
     def _filter_via_similarity(self, raw_results: list):
+        """
+        It filters a list of candidate sequences (raw_results) to remove those that are too similar.
+        It computes precision, recall, and F1-score by aligning token embeddings between two sequences greedily based on cosine similarity.
+        """
         seq_ids, seq_embs = [], []
         available_indexes, idx = [], -1
         for ids, _, embs in raw_results:
@@ -144,6 +168,7 @@ class StepLMConfig(SearchConfig):
             attention_mask=attention_mask,
             output_hidden_states=return_hidden_states,
         )
+        ### shape: (sequence length, vocabulary size); here sequence length: length of _input_ids (shape: (batch_size, sequence_length)) so _input_ids[-1]
         logits = _outputs.logits[0]
         hidden_states = _outputs.hidden_states[-1][0] if return_hidden_states else None
         return logits, hidden_states
@@ -277,10 +302,11 @@ class StepLMConfig(SearchConfig):
                     truncation=TruncationStrategy.LONGEST_FIRST,
                     return_tensors='pt',
                 )['input_ids'][0].to(seq.device) if len(sents) < len(sentences) or raw_full_generated != full_generated else seq
-                
+                ### gen_ids contains the generated part of the answer without the input prompt
                 gen_ids = gen_ids[input_ids.size(-1):]
                 if not gen_ids.size(-1):
                     continue
+                ### the sequence list contains the different answers sentences (n_actions amount of sentences) generated bei the LLM at the current tree stage
                 sequences_list.append(gen_ids)
                 unique_text_list.append(text)
         
@@ -342,7 +368,10 @@ class StepLMConfig(SearchConfig):
                 seq_input_ids.not_equal(self.base_tokenizer.pad_token_id),
                 seq_input_ids.not_equal(self.base_tokenizer.unk_token_id),
             )
+            ### Get logits from prompt + generated text, to give the model the full context, logits.shape: (batch_size, seq_len, vocab_size)
+            ### Where seq_len is len of prompt + generated text
             logits, hidden_states = self._get_logits(seq_input_ids, attention_mask=seq_attention_mask, model=policy_model.module)
+            ### Gather log probability (only give logits of generated text as input)
             log_probs = self._gather_log_probabilities(logits[input_ids.size(-1)-1:-1, :], gen_ids.to(logits.device))
             embs = hidden_states[input_ids.size(-1):]
             if add_kl:

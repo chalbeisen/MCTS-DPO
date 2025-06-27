@@ -8,6 +8,7 @@ from torch.nn.utils.rnn import pad_sequence
 import torch.distributed as dist
 import torch.nn.functional as F
 from transformers import AutoModelForCausalLM
+import pickle
 
 from mcts_rl.datasets import (
     PromptOnlyBatch, PromptOnlyPostBatch,
@@ -111,6 +112,7 @@ class MCTSTrainer(TSRLTrainer):
         target_probs, Q_values, r_values, base_values, visit_counts, select_indexes = [], [], [], [], [], []
         cur_node = None
         node_cnt = 0
+        path = []
         while cur_node is None or not cur_node.is_terminal:
             if cur_node is not None and (self.tokenizer.eos_token_id in cur_node.action or self.tokenizer.convert_tokens_to_ids("<|eot_id|>") in cur_node.action):
                 cur_node.is_terminal = True
@@ -129,12 +131,16 @@ class MCTSTrainer(TSRLTrainer):
             visit_counts.append([child.N for child in cur_node.children])
             
             cur_node = cur_node.children[mcts_rst.next_action_idx]
+            path.append(cur_node)
             select_indexes.append(mcts_rst.next_action_idx)
             
             node_cnt += 1 
             if self.args.n_actions == 1: break
         
         dist.barrier()
+
+        with open(f'{self.args.output_dir_vis}/mcts_rst_predicted_path.pkl', 'wb') as f:
+            pickle.dump({'cur_node': path[-1], 'path': path}, f)
         
         return [
             self.post_tree_construct(
@@ -486,6 +492,7 @@ class MMCTSTrainer(MCTSTrainer):
                     'output_dir': self.args.output_dir_vis,}, node=None)
         
         cur_node = root
+        path = [cur_node]
         while not self.mcts_searcher.search_algo._is_terminal_with_depth_limit(cur_node):
             if cur_node.action is not None and (self.tokenizer.eos_token_id in cur_node.action or self.tokenizer.convert_tokens_to_ids("<|eot_id|>") in cur_node.action):
                 cur_node.is_terminal = True
@@ -500,11 +507,15 @@ class MMCTSTrainer(MCTSTrainer):
             visit_counts.append([child.N for child in cur_node.children])
             
             cur_node = cur_node.children[selected_idx]
+            path.append(cur_node)
             select_indexes.append(selected_idx)
             
             if self.args.n_actions == 1: break
         
         dist.barrier()
+
+        with open(f'{self.args.output_dir_vis}/mmcts_rst_predicted_path.pkl', 'wb') as f:
+            pickle.dump({'cur_node':root, 'path': path}, f)
         
         return  [
             self.post_tree_construct(

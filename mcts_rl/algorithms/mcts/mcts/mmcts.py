@@ -314,7 +314,7 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
 
         return node.children[idx]
 
-    def _expand_and_evaluate(self, node: MMCTSNode):
+    def _expand_and_evaluate(self, node: MMCTSNode,  eval_method="log_probs"):
         """
         add n_actions of child nodes containing a reasoning step for the given prompt
         """
@@ -340,6 +340,9 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
 
         children = []
         for (action, (log_probs, ref_log_probs), embs), (value, base_rewards, is_terminal) in zip(actions, reward_value_batch):
+            if eval_method == "log_probs":
+                log_prob = log_probs.sum().item()
+                value = log_prob
             child = MMCTSNode(state=None, action=action, parent=node, 
                              base_rewards=base_rewards, value=value, 
                              embeddings=embs, log_probs=log_probs, ref_log_probs=ref_log_probs,
