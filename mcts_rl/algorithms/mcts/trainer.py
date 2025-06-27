@@ -451,7 +451,7 @@ class MMCTSTrainer(MCTSTrainer):
                 length_penalty=self.args.mcts_length_penalty,
         ))
 
-        self.mmcts_searcher = TreeConstructor(
+        self.mcts_searcher = TreeConstructor(
             world_model=world_model, 
             search_config=search_cfg, 
             search_algo=mmcts_algo,
@@ -467,31 +467,31 @@ class MMCTSTrainer(MCTSTrainer):
         gt_answer, solution = answer[0], prompt_only_batch['reasoning'][0]
         
         if solution.strip():
-            self.mmcts_searcher.search_config.generation_config.max_new_tokens = min(
+            self.mcts_searcher.search_config.generation_config.max_new_tokens = min(
                 self.args.max_new_tokens,
                 max(self.generation_config.max_new_tokens // 4,
                     len(self.tokenizer.encode(solution)) // max(1, self.args.depth_limit - 1))
             )
         
-        self.mmcts_searcher.search_config.use_code = ('\nprint(' in solution)
-        if self.mmcts_searcher.search_algo.policy_model is None or self.global_step % self.args.iteration_interval == 0:
-            self.mmcts_searcher.search_algo.policy_model = self.actor_reference_model if self.args.offline else self.actor_model
+        self.mcts_searcher.search_config.use_code = ('\nprint(' in solution)
+        if self.mcts_searcher.search_algo.policy_model is None or self.global_step % self.args.iteration_interval == 0:
+            self.mcts_searcher.search_algo.policy_model = self.actor_reference_model if self.args.offline else self.actor_model
 
         target_probs, Q_values, r_values, base_values, visit_counts, select_indexes = [], [], [], [], [], []
 
-        root = self.mmcts_searcher({
+        root = self.mcts_searcher({
                     'input_ids': seq, 'attention_mask': attn_msk,
                     'answer': gt_answer, 'reasoning': solution,
                     'answer_content': prompt_only_batch['answer_content'][0], 
                     'output_dir': self.args.output_dir_vis,}, node=None)
         
         cur_node = root
-        while not cur_node.is_terminal:
+        while not self.mcts_searcher.search_algo._is_terminal_with_depth_limit(cur_node):
             if cur_node.action is not None and (self.tokenizer.eos_token_id in cur_node.action or self.tokenizer.convert_tokens_to_ids("<|eot_id|>") in cur_node.action):
                 cur_node.is_terminal = True
                 break
             
-            next_action_pi, selected_idx, next_action_V, next_action_Q = self.mmcts_searcher.search_algo._get_simulated_pi(cur_node, return_selection=True)
+            next_action_pi, selected_idx, next_action_V, next_action_Q = self.mcts_searcher.search_algo._get_simulated_pi(cur_node, return_selection=True)
             
             target_probs.append(next_action_pi)
             Q_values.append([child.Q for child in cur_node.children])
@@ -506,7 +506,7 @@ class MMCTSTrainer(MCTSTrainer):
         
         dist.barrier()
         
-        return [
+        return  [
             self.post_tree_construct(
                 prompt=input_ids[idx],
                 target_probs=target_probs,
@@ -517,7 +517,7 @@ class MMCTSTrainer(MCTSTrainer):
                 select_indexes=select_indexes,
                 cur_node=cur_node,
                 solution=(solution, gt_answer,),
-                cur_max_new_tokens=self.mmcts_searcher.search_config.generation_config.max_new_tokens,
+                cur_max_new_tokens=self.mcts_searcher.search_config.generation_config.max_new_tokens,
             )
             for idx in range(input_ids.size(0))
         ]

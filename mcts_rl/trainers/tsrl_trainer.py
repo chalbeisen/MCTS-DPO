@@ -255,8 +255,8 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
             ds_config['zero_optimization'].get('offload_optimizer', {}).get('device', 'none')
             != 'none'
         ):
-            # optimizer = DeepSpeedCPUAdam(optimizer_grouped_parameters, lr=lr, betas=ADAM_BETAS)
-            optimizer = Adam(optimizer_grouped_parameters, lr=lr, betas=ADAM_BETAS)
+            optimizer = DeepSpeedCPUAdam(optimizer_grouped_parameters, lr=lr, betas=ADAM_BETAS)
+            #optimizer = Adam(optimizer_grouped_parameters, lr=lr, betas=ADAM_BETAS)
         else:
             optimizer = FusedAdam(optimizer_grouped_parameters, lr=lr, betas=ADAM_BETAS)
 

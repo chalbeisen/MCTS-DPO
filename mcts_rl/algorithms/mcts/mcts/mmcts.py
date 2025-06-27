@@ -236,7 +236,7 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
                     node = path[it_cnt+1]
                 else:
                     # node = self._random_select(node)
-                    node = self._puct_select(node.children)
+                    node = self._puct_select(node)
                 new_path.append(node)
 
             it_cnt += 1
@@ -274,7 +274,7 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
                     node = path[it_cnt+1]
                 else:
                     # node = self._random_select(node)
-                    node = self._puct_select(node.children)
+                    node = self._puct_select(node)
                 new_path.append(node)
                     
             with open(f'{output_dir}/mmcts_rst_{it_cnt}.pkl', 'wb') as f:
