@@ -578,8 +578,14 @@ def main() -> None:
     deepspeed.init_distributed()
 
     args.global_rank = dist.get_rank()
-    args.device = torch.device('cuda', args.local_rank)
-    torch.cuda.set_device(args.device)
+
+    if torch.cuda.is_available():
+        args.device = torch.device('cuda', args.local_rank)
+        torch.cuda.set_device(args.device)
+    else:
+        args.device = torch.device('cpu')
+        args.offload = 'all'
+
     seed_everything(args.seed)
     set_logger_level()
 

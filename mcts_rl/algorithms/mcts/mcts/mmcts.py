@@ -215,30 +215,33 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
         node = path[0]
         new_path = [node]
         node.N += 1
-        for i in range(len(path)-1):
-            if new_path[-1].children == None:
-                self._expand_and_evaluate(new_path[-1])
-                if self._is_terminal_with_depth_limit(path[-1]):
-                    return new_path
+        it_cnt = 0
+        while not self._is_terminal_with_depth_limit(node):
+            if node.children == None:
+                self._expand_and_evaluate(node)
 
-            node_puct_values = torch.tensor([float("inf") if child in node._untried_child_nodes else self._puct(child) for child in node.children])
-            
+            node_puct_values = torch.tensor([float("inf") if child.N == 0 else self._puct(child) for child in node.children])
             distribution = puct_distribution(node_puct_values, self.puct_inf_softening)
             #distribution = cap_distribution(distribution, (1+self.p_max)/len(node.children))
 
             candidate_index = torch.multinomial(distribution, 1)
             child = node.children[candidate_index]
 
-            # TODO: calculate acceptance probability
             accept_prob = 0.3
             if torch.rand(1) < accept_prob:
                 node = child
                 new_path.append(node)
             else:
-                # TODO: check list index
-                node = path[i+1]
+                if it_cnt < len(path)-1 and path[it_cnt+1] in node.children:
+                    node = path[it_cnt+1]
+                else:
+                    # node = self._random_select(node)
+                    node = self._puct_select(node.children)
                 new_path.append(node)
+
+            it_cnt += 1
         self._back_propagate(new_path)
+
         return new_path
     
     def iterate_and_save_tree(self, path: list[MMCTSNode], output_dir: str) -> list[MMCTSNode]:
@@ -262,8 +265,7 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
             candidate_index = torch.multinomial(distribution, 1)
             child = node.children[candidate_index]
 
-            # TODO: calculate acceptance probability
-            accept_prob = 0.8
+            accept_prob = 0.3
             if torch.rand(1) < accept_prob:
                 node = child
                 new_path.append(node)
@@ -271,8 +273,8 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
                 if it_cnt < len(path)-1 and path[it_cnt+1] in node.children:
                     node = path[it_cnt+1]
                 else:
-                    node = self._random_select(node)
-                    # self._puct_select(node.children)
+                    # node = self._random_select(node)
+                    node = self._puct_select(node.children)
                 new_path.append(node)
                     
             with open(f'{output_dir}/mmcts_rst_{it_cnt}.pkl', 'wb') as f:
