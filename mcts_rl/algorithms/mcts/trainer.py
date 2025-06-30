@@ -82,6 +82,7 @@ class MCTSTrainer(TSRLTrainer):
                 temperature_decay_ratio=self.args.mcts_temperature_decay_ratio,
                 consider_diversity=(not self.args.no_consider_diversity),
                 length_penalty=self.args.mcts_length_penalty,
+                eval_method='log_probs',
             ))
         self.mcts_searcher = TreeConstructor(
             world_model=world_model, 
@@ -109,6 +110,7 @@ class MCTSTrainer(TSRLTrainer):
         if self.mcts_searcher.search_algo.policy_model is None or self.global_step % self.args.iteration_interval == 0:
             self.mcts_searcher.search_algo.policy_model = self.actor_reference_model if self.args.offline else self.actor_model
 
+
         target_probs, Q_values, r_values, base_values, visit_counts, select_indexes = [], [], [], [], [], []
         cur_node = None
         node_cnt = 0
@@ -121,8 +123,16 @@ class MCTSTrainer(TSRLTrainer):
             mcts_rst = self.mcts_searcher({
                 'input_ids': seq, 'attention_mask': attn_msk,
                 'answer': gt_answer, 'reasoning': solution,
-                'answer_content': prompt_only_batch['answer_content'][0],
-                'output_dir': self.args.output_dir_vis, 'node_cnt': f"node_{node_cnt}"}, node=cur_node)
+                'answer_content': prompt_only_batch['answer_content'][0]}, node=cur_node,
+                output_dir_pickle=f"{self.args.output_dir_pickle}/node_{node_cnt}",
+                save_tree_to_pickle = True)
+            
+            if cur_node is None and self.mcts_searcher.search_algo.save_tree_to_pickle:
+                self.mcts_searcher.search_algo._save_to_pickle(f"{self.args.output_dir_pickle}/mcts_rst_prompt_answer.pkl", 
+                                    {'input_ids': seq,
+                                    'answer': gt_answer,
+                                    'reasoning': solution})
+                
             pi, cur_node = mcts_rst.next_action_pi, mcts_rst.tree_state
             target_probs.append(pi)
             Q_values.append([child.Q for child in cur_node.children])
@@ -139,8 +149,8 @@ class MCTSTrainer(TSRLTrainer):
         
         dist.barrier()
 
-        with open(f'{self.args.output_dir_vis}/mcts_rst_predicted_path.pkl', 'wb') as f:
-            pickle.dump({'cur_node': path[-1], 'path': path}, f)
+        if self.mcts_searcher.search_algo.save_tree_to_pickle:
+            self.mcts_searcher.search_algo._save_to_pickle(f"{self.args.output_dir_pickle}/mcts_rst_predicted_path.pkl", {'cur_node': cur_node, 'path': path})
         
         return [
             self.post_tree_construct(
@@ -455,7 +465,7 @@ class MMCTSTrainer(MCTSTrainer):
                 temperature_decay_ratio=self.args.mcts_temperature_decay_ratio,
                 consider_diversity=(not self.args.no_consider_diversity),
                 length_penalty=self.args.mcts_length_penalty,
-                output_dir_vis= self.args.output_dir_vis,
+                eval_method='log_probs',
         ))
 
         self.mcts_searcher = TreeConstructor(
@@ -489,7 +499,15 @@ class MMCTSTrainer(MCTSTrainer):
         root = self.mcts_searcher({
                     'input_ids': seq, 'attention_mask': attn_msk,
                     'answer': gt_answer, 'reasoning': solution,
-                    'answer_content': prompt_only_batch['answer_content'][0],}, node=None)
+                    'answer_content': prompt_only_batch['answer_content'][0],}, node=None, 
+                    output_dir_pickle=self.args.output_dir_pickle,
+                    save_tree_to_pickle = True)
+        
+        if self.mcts_searcher.search_algo.save_tree_to_pickle:
+            self.mcts_searcher.search_algo._save_to_pickle(f"{self.mcts_searcher.search_algo.output_dir_pickle}/mmcts_rst_prompt_answer.pkl", 
+                                    {'input_ids': seq,
+                                    'answer': gt_answer,
+                                    'reasoning': solution})
         
         cur_node = root
         path = [cur_node]
@@ -515,7 +533,7 @@ class MMCTSTrainer(MCTSTrainer):
         dist.barrier()
 
         if self.mcts_searcher.search_algo.save_tree_to_pickle:
-            self.mcts_searcher.search_algo_save_to_pickle(f"{self.output_dir_vis}/mmcts_initial_path.pkl", {'cur_node': self.root, 'path': path})
+            self.mcts_searcher.search_algo._save_to_pickle(f"{self.mcts_searcher.search_algo.output_dir_pickle}/mmcts_rst_predicted_path.pkl", {'cur_node': root, 'path': path})
         
         return  [
             self.post_tree_construct(

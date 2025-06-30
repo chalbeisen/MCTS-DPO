@@ -608,15 +608,11 @@ class StepLMConfig(SearchConfig):
     
     def get_values_logProbs(
         self,
-        policy_model,
-        state: StepLMState,
         action_batch: list[StepLMAction],
         log_probs_batch: list[torch.Tensor],
+        path_log_probs: list[torch.Tensor],
         ref_log_probs_batch: list[torch.Tensor],
-        correct_token_ids: list[int] = [319],
         add_kl: bool = False,
-        parent_depth: int = 0,
-        parent_value: float = 0.0,
     ) -> list[tuple[float, bool]]:
         outputs = []
 
@@ -628,7 +624,8 @@ class StepLMConfig(SearchConfig):
                 base_rewards = kl_divergence_estimate  # size = (L,)
             else:
                 base_rewards = None
-            score = log_probs.sum().item()
+            avg_log_prob = log_probs.sum() / log_probs.size(0)
+            score = torch.exp(-avg_log_prob).item()
             outputs.append((score, base_rewards, is_terminal))
         return outputs
 

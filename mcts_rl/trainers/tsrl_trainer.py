@@ -472,7 +472,7 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
                 prompt_only_batch = to_device(prompt_only_batch, self.args.device)
                 
                 # CH: adapted
-                self.args.output_dir_vis = f"{self.args.output_dir}/epoch_{str(epoch)}/batch_cnt_{str(batch_cnt)}"
+                self.args.output_dir_pickle = f"{self.args.output_dir}/epoch_{str(epoch)}/batch_cnt_{str(batch_cnt)}"
 
                 rl_batches = self.split_tsrl_micro_batches(prompt_only_batch)
                 batch_cnt += 1

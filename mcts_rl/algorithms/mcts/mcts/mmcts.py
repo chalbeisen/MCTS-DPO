@@ -37,8 +37,8 @@ class MMCTSConfig(NamedTuple):
     gamma: float = 1.0
     add_kl: bool = False
     consider_diversity: bool = True
-    length_penalty: float = 1.35
-    output_dir_pickle: Optional[str]
+    length_penalty: float = 1.25
+    eval_method: str = None
 
 class MMCTSNode(Generic[State, Action]):
     id_iter = itertools.count()
@@ -91,9 +91,6 @@ class MMCTSNode(Generic[State, Action]):
         self.V = 0.0
         self.Q = self.parent.V + self.r if self.parent is not None else self.r
 
-        self._available_actions = []
-        self._untried_child_nodes = []
-
     @property
     def r(self) -> float:
         if self.rewards is None:
@@ -133,7 +130,6 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
         self.n_iters = args.n_iters
         self.gamma = args.gamma
         self.add_kl = args.add_kl
-        self.save_tree_to_pickle = args.save_tree_to_pickle
         default_simulate_strategies: dict[str, Callable[[list[float]], int]] = {
             'max': lambda x: np.argmax(x),
             'sample': lambda x: np.random.choice(len(x), p=x),
@@ -151,14 +147,19 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
         self.disable_tqdm = args.disable_tqdm
         self.consider_diversity = args.consider_diversity
         self.length_penalty = args.length_penalty
-        self.save_tree_to_pickle = args.output_dir_pickle != None
-        self.output_dir_pickle = args.output_dir_pickle
+        self.eval_method = args.eval_method
         
         self.policy_model = None
 
         self.p_max: float = 0.25
         self.puct_inf_softening: float = 2.0
 
+    def _get_reward_of_path(self, path: list[MMCTSNode]) -> float:
+        reward = 0
+        for node in path:
+            reward += node.r
+        return reward 
+    
     def _get_simulated_pi(self, cur_node: MMCTSNode, return_selection=False) -> list[float]:
         """
         Apated from: https://github.com/suragnair/alpha-zero-general/blob/ce020c8eebbabf0e22654279508a6887b4791015/MCTS.py#L28C5-L53C21
@@ -210,9 +211,9 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
         return probs, next_action_V, next_action_Q
     
     def _save_to_pickle(self, path_to_file: str, dict_to_save: dict):
-        os.makedirs(path_to_file.strip,exist_ok=True)
+        os.makedirs(os.path.dirname(path_to_file), exist_ok=True)
         with open(path_to_file, 'wb') as f:
-            pickle.dump({'cur_node': self.root, 'path': dict_to_save}, f)
+            pickle.dump(dict_to_save, f)
 
     def iterate(self, path: list[MMCTSNode]) -> list[MMCTSNode]:
         """
@@ -243,16 +244,18 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
                 if it_cnt < len(path)-1 and path[it_cnt+1] in node.children:
                     node = path[it_cnt+1]
                 else:
-                    # node = self._random_select(node)
                     node = self._puct_select(node)
                 new_path.append(node)
             
             if self.save_tree_to_pickle:
-                self._save_to_pickle(f'{self.output_dir_vis_iter}/mmcts_rst_{it_cnt}.pkl', {'cur_node': self.root, 'path': new_path})
+                self._save_to_pickle(f'{self.output_dir_pickle_iter}/mmcts_rst_{it_cnt}.pkl', {'cur_node': self.root, 'path': new_path})
 
             it_cnt += 1
         self._back_propagate(new_path)
-        
+        if self.save_tree_to_pickle:
+            self._save_to_pickle(f'{self.output_dir_pickle_iter}/mmcts_rst_reward.pkl',
+                                        {'cur_node': self.root, 'path': new_path,
+                                        'reward': self._get_reward_of_path(path)})
         return new_path
 
     def _is_terminal_with_depth_limit(self, node: MMCTSNode):
@@ -285,7 +288,6 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
         """
         add n_actions of child nodes containing a reasoning step for the given prompt
         """
-        # TODO: check if adding untried actions is correct, see if availble_actions is needed
         if node.state is None:
             node.state = self.world_model.step(node.parent.state, node.action, node.log_probs)
             node.is_terminal = self.world_model.is_terminal(node.state)
@@ -301,11 +303,11 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
             log_probs_batch.append(log_probs)
             ref_log_probs_batch.append(ref_log_probs)
 
-        if self.args.eval_method == 'log_probs':
-            reward_value_batch = self.search_config.get_values_logProbs(self.policy_model, node.state, action_batch, 
-                                                           log_probs_batch, ref_log_probs_batch, 
-                                                           add_kl=self.add_kl, parent_depth=node.depth,
-                                                           parent_value=node.value)
+        if self.eval_method == 'log_probs':
+            reward_value_batch = self.search_config.get_values_logProbs(action_batch,
+                                                                        log_probs_batch,
+                                                                        ref_log_probs_batch,
+                                                                        self.add_kl)
         else:
             reward_value_batch = self.search_config.get_values(self.policy_model, node.state, action_batch, 
                                                            log_probs_batch, ref_log_probs_batch, 
@@ -319,7 +321,6 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
                              embeddings=embs, log_probs=log_probs, ref_log_probs=ref_log_probs,
                              is_terminal=is_terminal, length_penalty=self.length_penalty)
             children.append(child)
-            node._untried_child_nodes.append(child)
         node.children = children if node.children is None else node.children + children
 
     def _simulate(self, path: list[MMCTSNode]):
@@ -359,15 +360,11 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
             path.append(node)
 
         if self.save_tree_to_pickle:
-            self._save_to_pickle(f"{self.output_dir_vis}/mmcts_initial_path.pkl", {'cur_node': self.root, 'path': path})
-            self._save_to_pickle(f"{self.output_dir_vis}/mmcts_rst_prompt_answer.pkl", 
-                                 {'input_ids': self.world_model.example['input_ids'],
-                                'answer': self.world_model.example['answer'],
-                                'reasoning': self.world_model.example['reasoning']})
-
+            self._save_to_pickle(f"{self.output_dir_pickle}/mmcts_initial_path.pkl", {'cur_node': self.root, 'path': path})
+            
         return path
 
-    def search(self, args):
+    def search(self):
         """
         build an initial path through tree randomly
         then try to adapt that path for n_iters times
@@ -380,7 +377,7 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
         path = self.initial_path
         for i in trange(n_iters, disable=self.disable_tqdm, desc='MMCTS iteration', leave=False):
             if self.save_tree_to_pickle:
-                self.output_dir_vis_iter = f"{self.output_dir_vis}/{i}"
+                self.output_dir_pickle_iter = f"{self.output_dir_pickle}/{i}"
             path = self.iterate(path)
             if self.output_trace_in_each_iter:
                 self.trace_in_each_iter.append(deepcopy(path))
@@ -389,11 +386,15 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
                  world_model: WorldModel[State, Action, Example],
                  search_config: SearchConfig[State, Action, Example],
                  root_node: Optional[Union[MMCTSNode, int]] = None,
+                 output_dir_pickle: str = None,
+                 save_tree_to_pickle: bool = False,
                  **kwargs) -> MMCTSResult:
 
         self.world_model = world_model
         self.search_config = search_config
         self.root = root_node
+        self.output_dir_pickle = output_dir_pickle 
+        self.save_tree_to_pickle = save_tree_to_pickle
 
         if root_node is None:
             self.initial_path = self.set_initial_path()
