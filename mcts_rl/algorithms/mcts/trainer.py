@@ -455,6 +455,7 @@ class MMCTSTrainer(MCTSTrainer):
                 temperature_decay_ratio=self.args.mcts_temperature_decay_ratio,
                 consider_diversity=(not self.args.no_consider_diversity),
                 length_penalty=self.args.mcts_length_penalty,
+                output_dir_vis= self.args.output_dir_vis,
         ))
 
         self.mcts_searcher = TreeConstructor(
@@ -488,8 +489,7 @@ class MMCTSTrainer(MCTSTrainer):
         root = self.mcts_searcher({
                     'input_ids': seq, 'attention_mask': attn_msk,
                     'answer': gt_answer, 'reasoning': solution,
-                    'answer_content': prompt_only_batch['answer_content'][0], 
-                    'output_dir': self.args.output_dir_vis,}, node=None)
+                    'answer_content': prompt_only_batch['answer_content'][0],}, node=None)
         
         cur_node = root
         path = [cur_node]
@@ -514,8 +514,8 @@ class MMCTSTrainer(MCTSTrainer):
         
         dist.barrier()
 
-        with open(f'{self.args.output_dir_vis}/mmcts_rst_predicted_path.pkl', 'wb') as f:
-            pickle.dump({'cur_node':root, 'path': path}, f)
+        if self.mcts_searcher.search_algo.save_tree_to_pickle:
+            self.mcts_searcher.search_algo_save_to_pickle(f"{self.output_dir_vis}/mmcts_initial_path.pkl", {'cur_node': self.root, 'path': path})
         
         return  [
             self.post_tree_construct(

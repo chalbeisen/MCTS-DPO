@@ -38,7 +38,7 @@ class MMCTSConfig(NamedTuple):
     add_kl: bool = False
     consider_diversity: bool = True
     length_penalty: float = 1.35
-    
+    output_dir_pickle: Optional[str]
 
 class MMCTSNode(Generic[State, Action]):
     id_iter = itertools.count()
@@ -121,7 +121,7 @@ class MMCTSResult(NamedTuple):
 class MMCTS(SearchAlgorithm, Generic[State, Action]):
     def __init__(self, args: MMCTSConfig):
         """
-        MCTS algorithm
+        MMCTS algorithm
         """
         super().__init__()
         self.world_model = None
@@ -133,6 +133,7 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
         self.n_iters = args.n_iters
         self.gamma = args.gamma
         self.add_kl = args.add_kl
+        self.save_tree_to_pickle = args.save_tree_to_pickle
         default_simulate_strategies: dict[str, Callable[[list[float]], int]] = {
             'max': lambda x: np.argmax(x),
             'sample': lambda x: np.random.choice(len(x), p=x),
@@ -150,6 +151,8 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
         self.disable_tqdm = args.disable_tqdm
         self.consider_diversity = args.consider_diversity
         self.length_penalty = args.length_penalty
+        self.save_tree_to_pickle = args.output_dir_pickle != None
+        self.output_dir_pickle = args.output_dir_pickle
         
         self.policy_model = None
 
@@ -206,6 +209,11 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
             return probs, selected_idx, next_action_V, next_action_Q
         return probs, next_action_V, next_action_Q
     
+    def _save_to_pickle(self, path_to_file: str, dict_to_save: dict):
+        os.makedirs(path_to_file.strip,exist_ok=True)
+        with open(path_to_file, 'wb') as f:
+            pickle.dump({'cur_node': self.root, 'path': dict_to_save}, f)
+
     def iterate(self, path: list[MMCTSNode]) -> list[MMCTSNode]:
         """
         iterate through selected path of the current tree and try to find a better path
@@ -238,54 +246,13 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
                     # node = self._random_select(node)
                     node = self._puct_select(node)
                 new_path.append(node)
+            
+            if self.save_tree_to_pickle:
+                self._save_to_pickle(f'{self.output_dir_vis_iter}/mmcts_rst_{it_cnt}.pkl', {'cur_node': self.root, 'path': new_path})
 
             it_cnt += 1
         self._back_propagate(new_path)
-
-        return new_path
-    
-    def iterate_and_save_tree(self, path: list[MMCTSNode], output_dir: str) -> list[MMCTSNode]:
-        """
-        iterate through selected path of the current tree and try to find a better path
-        select next child according to capped puct distribution
-        continue until a terminal node was reached and return new path
-        """
-        node = path[0]
-        new_path = [node]
-        node.N += 1
-        it_cnt = 0
-        while not self._is_terminal_with_depth_limit(node):
-            if node.children == None:
-                self._expand_and_evaluate(node)
-
-            node_puct_values = torch.tensor([float("inf") if child.N == 0 else self._puct(child) for child in node.children])
-            distribution = puct_distribution(node_puct_values, self.puct_inf_softening)
-            #distribution = cap_distribution(distribution, (1+self.p_max)/len(node.children))
-
-            candidate_index = torch.multinomial(distribution, 1)
-            child = node.children[candidate_index]
-
-            accept_prob = 0.3
-            if torch.rand(1) < accept_prob:
-                node = child
-                new_path.append(node)
-            else:
-                if it_cnt < len(path)-1 and path[it_cnt+1] in node.children:
-                    node = path[it_cnt+1]
-                else:
-                    # node = self._random_select(node)
-                    node = self._puct_select(node)
-                new_path.append(node)
-                    
-            with open(f'{output_dir}/mmcts_rst_{it_cnt}.pkl', 'wb') as f:
-                pickle.dump({'cur_node': self.root, 'path': new_path}, f)
-
-            it_cnt += 1
-        self._back_propagate(new_path)
-
-        with open(f'{output_dir}/mmcts_rst_{it_cnt}_bckp.pkl', 'wb') as f:
-            pickle.dump({'cur_node': self.root, 'path': new_path}, f)
-
+        
         return new_path
 
     def _is_terminal_with_depth_limit(self, node: MMCTSNode):
@@ -314,7 +281,7 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
 
         return node.children[idx]
 
-    def _expand_and_evaluate(self, node: MMCTSNode,  eval_method="log_probs"):
+    def _expand_and_evaluate(self, node: MMCTSNode):
         """
         add n_actions of child nodes containing a reasoning step for the given prompt
         """
@@ -333,16 +300,20 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
             action_batch.append(action)
             log_probs_batch.append(log_probs)
             ref_log_probs_batch.append(ref_log_probs)
-        reward_value_batch = self.search_config.get_values(self.policy_model, node.state, action_batch, 
+
+        if self.args.eval_method == 'log_probs':
+            reward_value_batch = self.search_config.get_values_logProbs(self.policy_model, node.state, action_batch, 
+                                                           log_probs_batch, ref_log_probs_batch, 
+                                                           add_kl=self.add_kl, parent_depth=node.depth,
+                                                           parent_value=node.value)
+        else:
+            reward_value_batch = self.search_config.get_values(self.policy_model, node.state, action_batch, 
                                                            log_probs_batch, ref_log_probs_batch, 
                                                            add_kl=self.add_kl, parent_depth=node.depth,
                                                            parent_value=node.value)
 
         children = []
         for (action, (log_probs, ref_log_probs), embs), (value, base_rewards, is_terminal) in zip(actions, reward_value_batch):
-            if eval_method == "log_probs":
-                log_prob = log_probs.sum().item()
-                value = log_prob
             child = MMCTSNode(state=None, action=action, parent=node, 
                              base_rewards=base_rewards, value=value, 
                              embeddings=embs, log_probs=log_probs, ref_log_probs=ref_log_probs,
@@ -372,34 +343,7 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
             if node.action is not None:
                 node.Q = node.r + self.gamma * node.V
 
-    def search(self):
-        """
-        build an initial path through tree randomly
-        then try to adapt that path for n_iters times
-        """
-        if self.root is None:
-            self.root = MMCTSNode(state=self.world_model.init_state(), action=None, parent=None, length_penalty=self.length_penalty)
-        if self.output_trace_in_each_iter:
-            self.trace_in_each_iter = []
-
-        path = []
-        node = self.root
-        path.append(node)
-        while not self._is_terminal_with_depth_limit(path[-1]):
-            self._expand_and_evaluate(node)
-            node = self._random_select(node)
-            path.append(node)
-
-        n_iters = self.n_iters if self.root.depth else self.n_iters * 4     # iterate more at the starting point
-        for _ in trange(n_iters, disable=self.disable_tqdm, desc='MCTS iteration', leave=False):
-            path = self.iterate(path)
-            if self.output_trace_in_each_iter:
-                self.trace_in_each_iter.append(deepcopy(path))
-
-    def set_initial_path(self, args) -> list[MMCTSNode]:
-        output_dir = args['output_dir']
-        os.makedirs(output_dir,exist_ok=True)
-
+    def set_initial_path(self) -> list[MMCTSNode]:
         if self.root is None:
             self.root = MMCTSNode(state=self.world_model.init_state(), action=None, parent=None, length_penalty=self.length_penalty)
 
@@ -414,12 +358,16 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
             node.N += 1
             path.append(node)
 
-        with open(f"{output_dir}/mmcts_initial_path.pkl", 'wb') as f:
-                pickle.dump({'cur_node': self.root, 'path': path}, f)
+        if self.save_tree_to_pickle:
+            self._save_to_pickle(f"{self.output_dir_vis}/mmcts_initial_path.pkl", {'cur_node': self.root, 'path': path})
+            self._save_to_pickle(f"{self.output_dir_vis}/mmcts_rst_prompt_answer.pkl", 
+                                 {'input_ids': self.world_model.example['input_ids'],
+                                'answer': self.world_model.example['answer'],
+                                'reasoning': self.world_model.example['reasoning']})
 
         return path
 
-    def search_and_save_tree(self, args):
+    def search(self, args):
         """
         build an initial path through tree randomly
         then try to adapt that path for n_iters times
@@ -427,17 +375,13 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
         if self.output_trace_in_each_iter:
             self.trace_in_each_iter = []
 
-        output_dir = args['output_dir']
-
-        with open(f'{output_dir}/mmcts_rst_prompt_answer.pkl', 'wb') as f:
-            pickle.dump({'input_ids': args['input_ids'], 'answer': args['answer'], 'reasoning': args['reasoning']}, f)
 
         n_iters = self.n_iters if self.root.depth else self.n_iters * 4     # iterate more at the starting point
         path = self.initial_path
         for i in trange(n_iters, disable=self.disable_tqdm, desc='MMCTS iteration', leave=False):
-            output_dir_iter = f"{output_dir}/{i}"
-            os.makedirs(output_dir_iter,exist_ok=True)
-            path = self.iterate_and_save_tree(path, output_dir_iter)
+            if self.save_tree_to_pickle:
+                self.output_dir_vis_iter = f"{self.output_dir_vis}/{i}"
+            path = self.iterate(path)
             if self.output_trace_in_each_iter:
                 self.trace_in_each_iter.append(deepcopy(path))
 
@@ -452,13 +396,12 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
         self.root = root_node
 
         if root_node is None:
-            self.initial_path = self.set_initial_path(world_model.example)
+            self.initial_path = self.set_initial_path()
             MMCTSNode.reset_id()
 
         self.consider_diversity = False if self.search_config.n_actions == 1 else self.consider_diversity
 
-        #self.search()
-        self.search_and_save_tree(world_model.example)
+        self.search()
         
         return self.root
 

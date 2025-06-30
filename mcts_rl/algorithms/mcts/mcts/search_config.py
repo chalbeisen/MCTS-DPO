@@ -605,6 +605,32 @@ class StepLMConfig(SearchConfig):
                     score += eval_correct_score if parent_depth > 1 or not self.use_mcq or eval_correct_score <= 0 else eval_correct_score * 0.5
             outputs.append((score, base_rewards, is_terminal))
         return outputs
+    
+    def get_values_logProbs(
+        self,
+        policy_model,
+        state: StepLMState,
+        action_batch: list[StepLMAction],
+        log_probs_batch: list[torch.Tensor],
+        ref_log_probs_batch: list[torch.Tensor],
+        correct_token_ids: list[int] = [319],
+        add_kl: bool = False,
+        parent_depth: int = 0,
+        parent_value: float = 0.0,
+    ) -> list[tuple[float, bool]]:
+        outputs = []
+
+        for action, log_probs, ref_log_probs in zip(action_batch, log_probs_batch, ref_log_probs_batch):
+            step = self.base_tokenizer.decode(action, skip_special_tokens=False)
+            is_terminal = step.endswith(self.base_tokenizer.eos_token) or step.endswith('<|eot_id|>')
+            if add_kl:
+                kl_divergence_estimate = -self.kl_coeff * (log_probs - ref_log_probs)
+                base_rewards = kl_divergence_estimate  # size = (L,)
+            else:
+                base_rewards = None
+            score = log_probs.sum().item()
+            outputs.append((score, base_rewards, is_terminal))
+        return outputs
 
     def calculate_reward(self, logscore, logprob=None):
         if logprob is None:
