@@ -608,14 +608,19 @@ class StepLMConfig(SearchConfig):
     
     def get_values_logProbs(
         self,
+        state: StepLMState,
         action_batch: list[StepLMAction],
         log_probs_batch: list[torch.Tensor],
-        path_log_probs: list[torch.Tensor],
         ref_log_probs_batch: list[torch.Tensor],
         add_kl: bool = False,
     ) -> list[tuple[float, bool]]:
-        outputs = []
+        sub_score = 0
+        sub_score_len = 0
+        for subresult in state:
+            sub_score+=subresult.log_probs.sum()
+            sub_score_len+=subresult.log_probs.size(-1)
 
+        outputs = []
         for action, log_probs, ref_log_probs in zip(action_batch, log_probs_batch, ref_log_probs_batch):
             step = self.base_tokenizer.decode(action, skip_special_tokens=False)
             is_terminal = step.endswith(self.base_tokenizer.eos_token) or step.endswith('<|eot_id|>')
@@ -624,8 +629,10 @@ class StepLMConfig(SearchConfig):
                 base_rewards = kl_divergence_estimate  # size = (L,)
             else:
                 base_rewards = None
-            avg_log_prob = log_probs.sum() / log_probs.size(0)
-            score = torch.exp(-avg_log_prob).item()
+            log_probs_sum = sub_score + log_probs.sum()
+            seq_len = sub_score_len + log_probs.size(-1)
+            avg_log_prob = log_probs_sum / seq_len
+            score = avg_log_prob.exp().detach().item()
             outputs.append((score, base_rewards, is_terminal))
         return outputs
 

@@ -85,11 +85,17 @@ class MCTSNode(Generic[State, Action]):
         
         self.N = 0
         self.V = 0.0
+        ### Q(s,a) value = expected total reard you will get if you take a action a at s and then keep following good actions
+        ### it combines the immediate reward r(s,a) and the value V(s)
+        ### V(s) is the expected overall quality of being in state s
+        ### Q(s,a) guides action choice while V(s) summarizes the state quality
         self.Q = self.parent.V + self.r if self.parent is not None else self.r
 
     @property
     def r(self) -> float:
         if self.rewards is None:
+            ### Parent reward minus current reward -> r(s,a)=R(s')-R(s)
+            ### reward = immediate difference in quality when taking action a (so node.action)
             return self.value if self.parent is None else (self.value - self.parent.value)
         # TODO: consider KL divergence in MCTS
         # return self.rewards.mean().detach().item() + (self.value if self.parent is None else (self.value - self.parent.value))
@@ -213,9 +219,11 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
         path = self._select(node)
         it_cnt = 0
         while not self._is_terminal_with_depth_limit(path[-1]):
+            ### EXPANSION
             self._expand_and_evaluate(path[-1])
             if self._is_terminal_with_depth_limit(path[-1]) or len(path[-1].children) == 0:
                 break
+            ### SELECTION (Exploration with Q(s,a) and Exploitation with N)
             node = self._puct_select(path[-1])
             path.append(node)
 
@@ -265,18 +273,21 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
         actions = self.search_config.get_actions(self.policy_model, node.state, add_kl=self.add_kl)
         
         action_batch, log_probs_batch, ref_log_probs_batch = [], [], []
+        
         for action, (log_probs, ref_log_probs), _ in actions:
             action_batch.append(action)
             log_probs_batch.append(log_probs)
             ref_log_probs_batch.append(ref_log_probs)
 
+        ### Compute the reward of adding new nodes
         if self.eval_method == 'log_probs':
-            reward_value_batch = self.search_config.get_values_logProbs(node,
+            reward_value_batch = self.search_config.get_values_logProbs(node.state,
                                                                         action_batch,
                                                                         log_probs_batch,
                                                                         ref_log_probs_batch,
                                                                         self.add_kl)
         else:
+            # R(s) = O(s)+C(s) (outcome correctness + self evaluation confidence score)
             reward_value_batch = self.search_config.get_values(self.policy_model, node.state, action_batch, 
                                                            log_probs_batch, ref_log_probs_batch, 
                                                            add_kl=self.add_kl, parent_depth=node.depth,
@@ -305,6 +316,9 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
 
     def _back_propagate(self, path: list[MCTSNode]):
         node = path[-1]
+        ### update Q value with path based reward + future V
+        ### r(s,a) = R(s')-R(s) so the reward (value here) difference between parent and current node 
+        ### V(s) = average of Q(s,a) over all actions tried at s, weighted by visit counts
         node.Q = node.r + self.gamma * node.V
         node.N += 1
         for node in reversed(path[:-1]):
