@@ -10,7 +10,8 @@ import torch
 import numpy as np
 from copy import deepcopy
 import pickle
-
+import copy
+ 
 from mcts_rl.algorithms.mcts.mcts.base import (
     State, Action, Example, 
     SearchAlgorithm, WorldModel, SearchConfig,
@@ -115,6 +116,7 @@ class MCTSResult(NamedTuple):
     next_action_idx: int = 0
     trace_of_nodes: list[MCTSNode] = None
     cum_reward: float = None
+    search_history: dict = {}
 
 
 class MCTS(SearchAlgorithm, Generic[State, Action]):
@@ -209,15 +211,13 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
             return probs, selected_idx, next_action_V, next_action_Q
         return probs, next_action_V, next_action_Q
 
-    def _save_to_pickle(self, path_to_file: str, dict_to_save: dict):
-        os.makedirs(os.path.dirname(path_to_file), exist_ok=True)
-        with open(path_to_file, 'wb') as f:
-            pickle.dump(dict_to_save, f)
+
 
     def iterate(self, node: MCTSNode) -> list[MCTSNode]:
         node.N += 1
         path = self._select(node)
         it_cnt = 0
+        iter_history = {}
         while not self._is_terminal_with_depth_limit(path[-1]):
             ### EXPANSION
             self._expand_and_evaluate(path[-1])
@@ -227,17 +227,14 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
             node = self._puct_select(path[-1])
             path.append(node)
 
-            if self.save_tree_to_pickle:
-                self._save_to_pickle(f'{self.output_dir_pickle_iter}/mcts_rst_{it_cnt}.pkl', {'cur_node': self.root, 'path': path})
+            iter_history[f'iter_{it_cnt}'] = {'cur_node': copy.deepcopy(self.root), 'path': copy.deepcopy(path)}
 
             it_cnt += 1
         self._back_propagate(path)
 
-        if self.save_tree_to_pickle:
-            self._save_to_pickle(f'{self.output_dir_pickle_iter}/mcts_rst_backpropagation.pkl',
-                                        {'cur_node': self.root, 'path': path})
+        iter_history['backprob'] = {'cur_node': copy.deepcopy(self.root), 'path': copy.deepcopy(path)}
 
-        return path
+        return path, iter_history
 
 
     def _is_terminal_with_depth_limit(self, node: MCTSNode):
@@ -333,33 +330,30 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
             self.trace_in_each_iter = []
 
         n_iters = self.n_iters if self.root.depth else self.n_iters * 4     # iterate more at the starting point
-
+        search_history = {}
         for i in trange(n_iters, disable=self.disable_tqdm, desc='MCTS iteration', leave=False):
-            if self.save_tree_to_pickle:
-                self.output_dir_pickle_iter = f"{self.output_dir_pickle}/{i}"
-            path = self.iterate(self.root)
+            path, iter_history = self.iterate(self.root)
+            search_history[f'search_{i}'] = iter_history
             if self.output_trace_in_each_iter:
                 self.trace_in_each_iter.append(deepcopy(path))
+
+        return search_history
 
     def __call__(self,
                  world_model: WorldModel[State, Action, Example],
                  search_config: SearchConfig[State, Action, Example],
                  root_node: Optional[Union[MCTSNode, int]] = None,
-                 output_dir_pickle: str = None,
-                 save_tree_to_pickle: bool = False,
                  **kwargs) -> MCTSResult:
 
         self.root = root_node
         self.world_model = world_model
         self.search_config = search_config
-        self.output_dir_pickle = output_dir_pickle 
-        self.save_tree_to_pickle = save_tree_to_pickle
         self.consider_diversity = False if self.search_config.n_actions == 1 else self.consider_diversity
 
         if root_node is None:
             MCTSNode.reset_id()
 
-        self.search()
+        search_history = self.search()
         
         if self.output_trace_in_each_iter:
             trace_in_each_iter = self.trace_in_each_iter
@@ -373,5 +367,6 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
                           next_action_V=next_action_V,
                           next_action_Q=next_action_Q,
                           trace_in_each_iter=trace_in_each_iter,
-                          next_action_idx=selected_idx)
+                          next_action_idx=selected_idx,
+                          search_history=search_history)
 

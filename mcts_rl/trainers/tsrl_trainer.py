@@ -480,6 +480,7 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
                 self.args.output_dir_pickle = f"{self.args.output_dir}/epoch_{str(epoch)}/batch_cnt_{str(batch_cnt)}"
 
                 rl_batches = self.split_tsrl_micro_batches(prompt_only_batch)
+                
                 batch_cnt += 1
                 
                 if self.use_ptx:
