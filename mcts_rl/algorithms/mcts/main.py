@@ -216,7 +216,7 @@ def parse_arguments() -> argparse.Namespace:
     training_parser.add_argument(
         '--epochs',
         type=int,
-        default=1,
+        default=10,
         help='Total number of training epochs to perform.',
     )
     training_parser.add_argument(
@@ -389,7 +389,7 @@ def parse_arguments() -> argparse.Namespace:
     mcts_parser.add_argument(
         '--n_iters',
         type=int,
-        default=5,
+        default=100,
     )
     mcts_parser.add_argument(
         '--n_init_actions',
@@ -607,7 +607,7 @@ def main() -> None:
         bf16=args.bf16,
     )
 
-    training_type = 'mcts'
+    training_type = 'mmcts'
 
     if training_type == 'mmcts':
         args.output_dir = f"{args.output_dir}/mmcts_saved_trees_log_probs"

@@ -149,7 +149,7 @@ class MCTSTrainer(TSRLTrainer):
         
         dist.barrier()
 
-        if self.mcts_searcher.search_algo.save_tree_to_pickle:
+        if self.save_predicted_path:
             self.mcts_searcher.search_algo._save_to_pickle(f"{self.args.output_dir_pickle}/mcts_rst_predicted_path.pkl", {'cur_node': cur_node, 'path': path})
         
         return [

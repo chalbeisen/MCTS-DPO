@@ -234,9 +234,8 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
         self._back_propagate(path)
 
         if self.save_tree_to_pickle:
-            self._save_to_pickle(f'{self.output_dir_pickle_iter}/mcts_rst_reward.pkl',
-                                        {'cur_node': self.root, 'path': path,
-                                        'reward': self._get_reward_of_path(path)})
+            self._save_to_pickle(f'{self.output_dir_pickle_iter}/mcts_rst_backpropagation.pkl',
+                                        {'cur_node': self.root, 'path': path})
 
         return path
 

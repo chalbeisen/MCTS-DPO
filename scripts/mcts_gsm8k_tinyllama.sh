@@ -75,7 +75,7 @@ deepspeed --include localhost:0 --master_port $MASTER_PORT \
 	--num_return_sequences 1 \
 	--repetition_penalty 1.0 \
 	--trust_remote_code True \
-	--epochs 1 \
+	--epochs 50 \
 	--conservative \
 	--update_iters 1 \
 	--save_interval 64 \
@@ -102,7 +102,7 @@ deepspeed --include localhost:0 --master_port $MASTER_PORT \
 	--bf16 True \
 	--tf32 True \
 	--max_new_tokens 128 \
-	--n_iters 64 \
+	--n_iters 50 \
 	--depth_limit 3 \
 	--n_init_actions 2 \
 	--n_actions 2 \

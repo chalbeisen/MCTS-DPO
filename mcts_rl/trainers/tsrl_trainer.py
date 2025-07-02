@@ -109,6 +109,7 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
         self.gamma = 1.0
         self.gae_lambda = 0.95
         self.scale_coeff = self.args.scale_coeff
+        self.save_predicted_path = True
 
     def init_models(self) -> None:
         """Initialize model and tokenizer."""
@@ -462,6 +463,10 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
                 self.prompt_only_dataloader,
                 itertools.chain.from_iterable([self.ptx_dataloader] * num_ptx_replicas),
             ):
+                ### CH adapted
+                if batch_cnt > 1:
+                    break
+
                 if steps_trained_in_current_epoch > 0:
                     steps_trained_in_current_epoch -= 1
                     continue
@@ -483,7 +488,7 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
                 else:
                     ptx_batches = [None for _ in range(len(rl_batches))]
                 torch.cuda.empty_cache()
-                
+                """
                 # train
                 self.set_train()
                 for _ in range(self.args.update_iters):
@@ -546,6 +551,7 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
                 )
                 self.save(global_steps=self.global_step)
                 self.logger.log(self.eval(), step=self.global_step)
+            """
 
     def eval(self) -> dict[str, Any]:
         """Evaluate the model on the evaluation dataset."""

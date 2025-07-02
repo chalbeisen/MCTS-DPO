@@ -253,9 +253,8 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
             it_cnt += 1
         self._back_propagate(new_path)
         if self.save_tree_to_pickle:
-            self._save_to_pickle(f'{self.output_dir_pickle_iter}/mmcts_rst_reward.pkl',
-                                        {'cur_node': self.root, 'path': new_path,
-                                        'reward': self._get_reward_of_path(path)})
+            self._save_to_pickle(f'{self.output_dir_pickle_iter}/mmcts_rst_backpropagation.pkl',
+                                        {'cur_node': self.root, 'path': path})
         return new_path
 
     def _is_terminal_with_depth_limit(self, node: MMCTSNode):
@@ -304,7 +303,8 @@ class MMCTS(SearchAlgorithm, Generic[State, Action]):
             ref_log_probs_batch.append(ref_log_probs)
 
         if self.eval_method == 'log_probs':
-            reward_value_batch = self.search_config.get_values_logProbs(action_batch,
+            reward_value_batch = self.search_config.get_values_logProbs(node.state,
+                                                                        action_batch,
                                                                         log_probs_batch,
                                                                         ref_log_probs_batch,
                                                                         self.add_kl)
