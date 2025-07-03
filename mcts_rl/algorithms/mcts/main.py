@@ -1,7 +1,6 @@
 """The main training script to train RLHF using PPO algorithm."""
 
 import argparse
-
 import deepspeed
 import torch
 import torch.distributed as dist
@@ -607,7 +606,7 @@ def main() -> None:
         bf16=args.bf16,
     )
 
-    training_type = 'mcts'
+    training_type = 'mmcts'
 
     if training_type == 'mmcts':
         args.output_dir = f"{args.output_dir}/mmcts_saved_trees_log_probs"

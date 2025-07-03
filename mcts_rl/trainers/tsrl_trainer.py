@@ -463,9 +463,6 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
                 self.prompt_only_dataloader,
                 itertools.chain.from_iterable([self.ptx_dataloader] * num_ptx_replicas),
             ):
-                ### CH adapted
-                if batch_cnt > 1:
-                    break
 
                 if steps_trained_in_current_epoch > 0:
                     steps_trained_in_current_epoch -= 1

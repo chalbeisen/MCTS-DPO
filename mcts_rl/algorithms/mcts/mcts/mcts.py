@@ -106,7 +106,68 @@ class MCTSNode(Generic[State, Action]):
     def p(self) -> float:
         return (self.log_probs.sum() / self.log_probs.size(-1) ** self.length_penalty).exp().detach().item()
 
+    def cpu_clone(self, seen=None):
+        import torch
+        import copy
 
+        if seen is None:
+            seen = {}
+
+        obj_id = id(self)
+        if obj_id in seen:
+            return seen[obj_id]
+
+        # Shallow copy first
+        clone = copy.copy(self)
+        seen[obj_id] = clone
+
+        for attr_name, attr_val in self.__dict__.items():
+            clone_val = self._clone_to_cpu(attr_val, seen)
+            setattr(clone, attr_name, clone_val)
+
+        return clone
+
+    @staticmethod
+    def _clone_to_cpu(obj, seen):
+        import torch
+        import copy
+
+        if id(obj) in seen:
+            return seen[id(obj)]
+
+        if isinstance(obj, torch.Tensor):
+            cpu_tensor = obj.detach().cpu()
+            seen[id(obj)] = cpu_tensor
+            return cpu_tensor
+        elif isinstance(obj, dict):
+            cpu_dict = {}
+            seen[id(obj)] = cpu_dict
+            for k, v in obj.items():
+                cpu_dict[k] = MCTSNode._clone_to_cpu(v, seen)
+            return cpu_dict
+        elif isinstance(obj, list):
+            cpu_list = []
+            seen[id(obj)] = cpu_list
+            for item in obj:
+                cpu_list.append(MCTSNode._clone_to_cpu(item, seen))
+            return cpu_list
+        elif isinstance(obj, tuple):
+            cpu_tuple = tuple(MCTSNode._clone_to_cpu(i, seen) for i in obj)
+            seen[id(obj)] = cpu_tuple
+            return cpu_tuple
+        elif isinstance(obj, set):
+            cpu_set = {MCTSNode._clone_to_cpu(i, seen) for i in obj}
+            seen[id(obj)] = cpu_set
+            return cpu_set
+        elif hasattr(obj, '__dict__'):
+            clone_obj = copy.copy(obj)
+            seen[id(obj)] = clone_obj
+            for k, v in vars(obj).items():
+                setattr(clone_obj, k, MCTSNode._clone_to_cpu(v, seen))
+            return clone_obj
+        else:
+            return obj
+        
 class MCTSResult(NamedTuple):
     tree_state: MCTSNode
     next_action_pi: list[float]
@@ -154,12 +215,6 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
         self.eval_method = args.eval_method
         
         self.policy_model = None
-
-    def _get_reward_of_path(self, path: list[MCTSNode]) -> float:
-        reward = 0
-        for node in path:
-            reward += node.r
-        return reward 
     
     def _get_simulated_pi(self, cur_node: MCTSNode, return_selection=False) -> list[float]:
         """
@@ -211,8 +266,6 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
             return probs, selected_idx, next_action_V, next_action_Q
         return probs, next_action_V, next_action_Q
 
-
-
     def iterate(self, node: MCTSNode) -> list[MCTSNode]:
         node.N += 1
         path = self._select(node)
@@ -227,12 +280,12 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
             node = self._puct_select(path[-1])
             path.append(node)
 
-            iter_history[f'iter_{it_cnt}'] = {'cur_node': copy.deepcopy(self.root), 'path': copy.deepcopy(path)}
+            iter_history[f'iter_{it_cnt}'] = {'cur_node': self.root.cpu_clone(), 'path': [node.id for node in path]}
 
             it_cnt += 1
         self._back_propagate(path)
 
-        iter_history['backprob'] = {'cur_node': copy.deepcopy(self.root), 'path': copy.deepcopy(path)}
+        iter_history['backprob'] = {'cur_node': self.root.cpu_clone(), 'path': [node.id for node in path], 'reward': path[-1].value}
 
         return path, iter_history
 

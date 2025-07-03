@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from transformers import AutoModelForCausalLM
 import pickle
 import os
+import copy
 
 from mcts_rl.datasets import (
     PromptOnlyBatch, PromptOnlyPostBatch,
@@ -32,8 +33,6 @@ from mcts_rl.algorithms.mcts.mcts import (
     StepLMConfig, 
     SearchArgs, 
     MMCTS,
-    MMCTSNode,
-    MMCTSConfig,
     MMCTSResult,
     MCTS,
     MCTSNode,
@@ -150,7 +149,7 @@ class MCTSTrainer(TSRLTrainer):
             if self.args.n_actions == 1: break
         
         dist.barrier()
-        history['predicted_path'] = {'cur_node': cur_node, 'path': path}
+        history['predicted_path'] = {'cur_node': cur_node.cpu_clone(), 'path': [node.id for node in path], 'reward': path[-1].value}
         self._save_to_pickle(f"{self.args.output_dir_pickle}/mcts_history.pkl", history)
         
         return [
@@ -462,7 +461,7 @@ class MMCTSTrainer(MCTSTrainer):
             include_gt=(not self.args.not_include_gt),
             verbose=self.args.verbose,
         ))
-        mmcts_algo = MMCTS(MMCTSConfig(
+        mmcts_algo = MMCTS(MCTSConfig(
                 w_exp=self.args.w_exp,
                 depth_limit=self.args.depth_limit,
                 breadth_limit=self.args.breadth_limit,
@@ -512,8 +511,7 @@ class MMCTSTrainer(MCTSTrainer):
         root = mcts_rst.tree_state
         history = mcts_rst.search_history
         
-        if self.mcts_searcher.search_algo.save_tree_to_pickle:
-            self.mcts_searcher.search_algo._save_to_pickle(f"{self.mcts_searcher.search_algo.output_dir_pickle}/mmcts_rst_prompt_answer.pkl", 
+        self._save_to_pickle(f"{self.args.output_dir_pickle}/mmcts_rst_prompt_answer.pkl", 
                                     {'input_ids': seq,
                                     'answer': gt_answer,
                                     'reasoning': solution})
@@ -541,10 +539,8 @@ class MMCTSTrainer(MCTSTrainer):
         
         dist.barrier()
 
-        history['predicted_path'] = {'cur_node': cur_node, 'path': path}
+        history['predicted_path'] = {'cur_node': cur_node.cpu_clone(), 'path': [node.id for node in path], 'reward': path[-1].value}
         self._save_to_pickle(f"{self.args.output_dir_pickle}/mmcts_history.pkl", history)
-
-        self._save_to_pickle(f"{self.args.output_dir_pickle}/mmcts_rst_predicted_path.pkl", {'cur_node': root, 'path': path})
         
         return  [
             self.post_tree_construct(
