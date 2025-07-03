@@ -335,6 +335,13 @@ class MCTS(SearchAlgorithm, Generic[State, Action]):
                                                                         log_probs_batch,
                                                                         ref_log_probs_batch,
                                                                         self.add_kl)
+        elif self.eval_method == 'llm_judge':
+            reward_value_batch = self.search_config.get_values_LLMJudge(self.policy_model,
+                                                                        node.state,
+                                                                        action_batch,
+                                                                        log_probs_batch,
+                                                                        ref_log_probs_batch,
+                                                                        self.add_kl)
         else:
             # R(s) = O(s)+C(s) (outcome correctness + self evaluation confidence score)
             reward_value_batch = self.search_config.get_values(self.policy_model, node.state, action_batch, 

@@ -82,7 +82,8 @@ class MCTSTrainer(TSRLTrainer):
                 temperature_decay_ratio=self.args.mcts_temperature_decay_ratio,
                 consider_diversity=(not self.args.no_consider_diversity),
                 length_penalty=self.args.mcts_length_penalty,
-                eval_method='log_probs',
+                #eval_method='log_probs',
+                eval_method='llm_judge'
             ))
         self.mcts_searcher = TreeConstructor(
             world_model=world_model, 
@@ -141,9 +142,12 @@ class MCTSTrainer(TSRLTrainer):
             base_values.append([child.value for child in cur_node.children])
             visit_counts.append([child.N for child in cur_node.children])
             
-            cur_node = cur_node.children[mcts_rst.next_action_idx]
+            #cur_node = cur_node.children[mcts_rst.next_action_idx]
+            #selected_indexes.append(selected_idx)
+            max_index = max(enumerate(cur_node.children), key=lambda x: x[1].N)[0]
+            cur_node = cur_node.children[max_index]
             path.append(cur_node)
-            select_indexes.append(mcts_rst.next_action_idx)
+            select_indexes.append(max_index)
             
             node_cnt += 1 
             if self.args.n_actions == 1: break
@@ -177,7 +181,7 @@ class MCTSTrainer(TSRLTrainer):
         base_values: list[list[float]],
         visit_counts: list[list[int]],
         select_indexes: list[int],
-        cur_node: MCTSNode|MMCTSNode,
+        cur_node: MCTSNode,
         solution: tuple = None,
         cur_max_new_tokens: int = 32,
     ) -> dict[str, Any]: 
@@ -470,7 +474,8 @@ class MMCTSTrainer(MCTSTrainer):
                 temperature_decay_ratio=self.args.mcts_temperature_decay_ratio,
                 consider_diversity=(not self.args.no_consider_diversity),
                 length_penalty=self.args.mcts_length_penalty,
-                eval_method='log_probs',
+                #eval_method='log_probs',
+                eval_method='llm_judge',
         ))
 
         self.mcts_searcher = TreeConstructor(
@@ -531,9 +536,12 @@ class MMCTSTrainer(MCTSTrainer):
             base_values.append([child.value for child in cur_node.children])
             visit_counts.append([child.N for child in cur_node.children])
             
-            cur_node = cur_node.children[selected_idx]
+            #cur_node = cur_node.children[selected_idx]
+            #selected_indexes.append(selected_idx)
+            max_index = max(enumerate(cur_node.children), key=lambda x: x[1].N)[0]
+            cur_node = cur_node.children[max_index]
             path.append(cur_node)
-            select_indexes.append(selected_idx)
+            select_indexes.append(max_index)
             
             if self.args.n_actions == 1: break
         

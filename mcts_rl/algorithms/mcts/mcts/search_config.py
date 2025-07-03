@@ -638,94 +638,114 @@ class StepLMConfig(SearchConfig):
     
     def get_values_LLMJudge(
         self,
+        policy_model,
         state: StepLMState,
         action_batch: list[StepLMAction],
         log_probs_batch: list[torch.Tensor],
         ref_log_probs_batch: list[torch.Tensor],
         add_kl: bool = False,
     ) -> list[tuple[float, bool]]:
-        base_rewards = None
-        input_ids, _ = self._get_sequence_ids_in_path(state)
+        
+        def _eval(eval_prompt, policy_model, device):
+            correct_token_ids = [self.base_tokenizer.encode(tok)[1] for tok in ['B', 'correct', 'Correct']]
+            eval_inputs = self.base_tokenizer(
+                eval_prompt,
+                add_special_tokens=True,
+                truncation=TruncationStrategy.LONGEST_FIRST,
+                return_tensors='pt',
+            )
+                    
+            if eval_inputs['input_ids'].size(-1) >= self.generation_config.max_length:
+                seq = []
+                response = 'N/A'
+            else:
+                sequences = policy_model.module.generate(
+                    input_ids=eval_inputs['input_ids'].to(device),
+                    attention_mask=eval_inputs['attention_mask'].to(device),
+                    max_new_tokens=4,
+                    do_sample=False,
+                    output_scores=True,
+                    synced_gpus=True,
+                    return_dict_in_generate=True,
+                    pad_token_id=self.base_tokenizer.eos_token_id,
+                )
+                        
+                sequences, scores = sequences.sequences.cpu(), sequences.scores
+                seq = sequences[0][eval_inputs['input_ids'].size(-1):]
+                response = self.base_tokenizer.decode(seq, skip_special_tokens=True)
+            
+            conf = 0.0
+            for idx, _id in enumerate(seq):
+                if self.base_tokenizer.decode(_id).strip() in ['A', 'B', 'correct', 'wrong', 'incorrect']:
+                    logprobs = F.log_softmax(scores[idx][0], dim=-1)
+                    conf = sum(torch.exp(logprobs[tok_id]).detach().item() for tok_id in correct_token_ids)
+                    break
+            if conf == 0.0:
+                for idx, _id in enumerate(seq):
+                    if self.base_tokenizer.decode(_id).strip() in ['Cor', 'In', 'A', 'B', 'correct', 'wrong', 'incorrect']:
+                        logprobs = F.log_softmax(scores[idx][0], dim=-1)
+                        conf = sum(torch.exp(logprobs[tok_id]).detach().item() for tok_id in correct_token_ids)
+                        break
+            
+            return response, conf
+
+        # extract resoning steps and gt_ans
+        solution, gt_ans = self._extract_solution_and_gt() 
+        # get proposed partial answer
+        input_ids, attention_mask = self._get_sequence_ids_in_path(state)
         prompt = self.base_tokenizer.decode(input_ids, skip_special_tokens=True)
+
+              
+        texts = prompt.split('user\n\n')[-1].split('assistant\n\n')
+        input_txt = 'assistant\n\n'.join(texts[:-1])
+
+        eval_prompt_user = '<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n'
+        input_txt = eval_prompt_user + input_txt.split(f'{eval_prompt_user}')[-1].lstrip()
+
+        init_answer = texts[-1] if len(texts) > 1 else ''
+        base_rewards = None
+        outputs = []
         for action, log_probs, ref_log_probs in zip(action_batch, log_probs_batch, ref_log_probs_batch):
+            # Get action (reasoning step) from child node
             step = self.base_tokenizer.decode(action, skip_special_tokens=False)
+            # Check if child node is terminal
             is_terminal = step.endswith(self.base_tokenizer.eos_token) or step.endswith('<|eot_id|>')
             if is_terminal:
                 step = step[:-len('<|eot_id|>' if self.model_type == 'llama3' else self.base_tokenizer.eos_token)]
-            if self.model_type == 'llama3':
-                texts = prompt.split('user\n\n')[-1].split('assistant\n\n')
-                input_txt = 'assistant\n\n'.join(texts[:-1])
-            else:
-                texts = prompt.split(self.prompt_assistant)
-                input_txt = self.prompt_assistant.join(texts[:-1]) # + PROMPT_ASSISTANT
-            init_answer = texts[-1] if len(texts) > 1 else ''
-            
-            if input_txt.startswith(PROMPT_BEGIN):
-                ## for HH-RLHF
-                eval_prompt = HH_EVAL_PROMPT.format(input=input_txt, prompt=self.prompt_assistant + texts[-1] + step)
-                # eval_prompt = QA_EVAL_PROMPT.format(input=input_txt, prompt=self.prompt_assistant + texts[-1] + step)
-                eval_result, eval_conf, eval_correct_score = _eval(eval_prompt, prompt.split(self.prompt_assistant)[-1] + ' ' + step, None, action.device)
-            else:
-                if self.example['reasoning'] and self.example['reasoning'] != self.example['answer_content']:
-                    ## for cases where the intermediate steps are available in G.T. solutions
-                    newline_flag = True
-                    _solution_steps = regex.split(r'[\n]+', self.example['reasoning'].strip())
-                    if len(_solution_steps) < 2 and not self.use_code:
-                        _solution_steps = sent_tokenize(self.example['reasoning'].strip())
-                        newline_flag = False
-                    if not self.use_code and ' answer is' not in _solution_steps[-1]:
-                        _solution_steps.append("The answer is {}{}".format(self.example['answer'], "<|eot_id|>" if self.model_type == 'llama3' else self.base_tokenizer.eos_token))
-                    solution_steps = []
-                    for i, x in enumerate(_solution_steps):
-                        if newline_flag and i < len(_solution_steps) - 1:
-                            solution_steps.append(f'{x}\n')
-                        elif not newline_flag and i > 0:
-                            solution_steps.append(f' {x}')
-                        else:
-                            solution_steps.append(x)
-                    solution = ''.join(solution_steps)
-                    gt_ans = self.example["answer"]
-                else:
-                    ## for cases (MCQ) where only final answers are available
-                    gt_ans = [f"({self.example['answer']})", self.example['answer_content']] \
-                        if self.example['answer'] != self.example['answer_content'] else [f"({self.example['answer']})"]
-                    solution = f'The answer is {gt_ans[0]} {gt_ans[1]}'
-                
-                if self.reward_model is not None:
-                    eval_prompt = REWARD_EVAL_PROMPT.format(input=input_txt, prompt=init_answer + step, 
-                                                            eos_token=self.reward_tokenizer.eos_token)
-                else:
-                    if self.model_type == 'llama3':
-                        eval_prompt_user = '<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n'
-                        input_txt = eval_prompt_user + input_txt.split(f'{eval_prompt_user}')[-1].lstrip()
-                        eval_prompt = LLAMA3_HINTED_EVAL_PROMPT.format(input=input_txt, solution=solution, 
-                                                                       prompt=init_answer + step.replace('<|eot_id|>', ''))
-                    else:
-                        eval_prompt_user = 'QUESTION:'
-                        input_txt = eval_prompt_user + input_txt.split(f'{eval_prompt_user}')[-1].lstrip()
-                        eval_prompt = HINTED_EVAL_PROMPT.format(input=input_txt, solution=solution, 
-                                                                prompt=init_answer + step)
-                
-                eval_result, eval_conf, eval_correct_score = \
-                    _eval(eval_prompt.lstrip(), init_answer + step.replace('<|eot_id|>', ''), gt_ans, action.device)
-                if self.example['reasoning'] and not self.use_mcq and eval_correct_score >= 1:
-                    if not solution.strip().startswith((init_answer + step).strip()):
-                        eval_correct_score *= 5/4
-            
-            if self.verbose:
-                print(f'\n======\n{eval_prompt} {eval_result} ({eval_conf})')
-            if self.use_code and is_terminal:
-                pred = extract_answer(prompt.split(self.prompt_assistant)[-1] + step, use_code=self.use_code)
-                if self.verbose:
-                    print('\nPredicted answer is: {} | Ground-truth is: {}'.format(pred, gt_ans))
-            score = eval_conf / max(parent_depth - 3, 1)    # Penalize generations that are too long
-            if score == 0: score = parent_value
-            if is_terminal and not input_txt.startswith(PROMPT_BEGIN) and not self.eval_mode:
-                if self.n_actions < 2 or parent_depth > 0 or eval_correct_score <= 0 or not self.use_mcq:
-                    score += eval_correct_score if parent_depth > 1 or not self.use_mcq or eval_correct_score <= 0 else eval_correct_score * 0.5
+            eval_prompt = LLAMA3_HINTED_EVAL_PROMPT.format(input=input_txt, solution=solution, 
+                            prompt=init_answer + step.replace('<|eot_id|>', ''))
+            eval_result, score = _eval(eval_prompt.lstrip(), policy_model, action.device)
+
             outputs.append((score, base_rewards, is_terminal))
+
         return outputs
-    
+
+    def _extract_solution_and_gt(self):
+        if self.example['reasoning'] and self.example['reasoning'] != self.example['answer_content']:
+                ## for cases where the intermediate steps are available in G.T. solutions
+                newline_flag = True
+                _solution_steps = regex.split(r'[\n]+', self.example['reasoning'].strip())
+                if len(_solution_steps) < 2 and not self.use_code:
+                    _solution_steps = sent_tokenize(self.example['reasoning'].strip())
+                    newline_flag = False
+                if not self.use_code and ' answer is' not in _solution_steps[-1]:
+                    _solution_steps.append("The answer is {}{}".format(self.example['answer'], "<|eot_id|>" if self.model_type == 'llama3' else self.base_tokenizer.eos_token))
+                solution_steps = []
+                for i, x in enumerate(_solution_steps):
+                    if newline_flag and i < len(_solution_steps) - 1:
+                        solution_steps.append(f'{x}\n')
+                    elif not newline_flag and i > 0:
+                        solution_steps.append(f' {x}')
+                    else:
+                        solution_steps.append(x)
+                solution = ''.join(solution_steps)
+                gt_ans = self.example["answer"]
+        else:
+                ## for cases (MCQ) where only final answers are available
+                gt_ans = [f"({self.example['answer']})", self.example['answer_content']] \
+                    if self.example['answer'] != self.example['answer_content'] else [f"({self.example['answer']})"]
+                solution = f'The answer is {gt_ans[0]} {gt_ans[1]}'
+        return solution, gt_ans
 
     def calculate_reward(self, logscore, logprob=None):
         if logprob is None:
