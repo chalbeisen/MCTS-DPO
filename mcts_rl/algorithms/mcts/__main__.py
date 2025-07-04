@@ -1,10 +1,12 @@
 """The main training script to train RLHF using PPO algorithm."""
 
 import sys
+import os
 
 ## CH_adapted
+#if int(os.environ.get("RANK", 0)) == 0:  # or use "LOCAL_RANK"
 import debugpy
-debugpy.listen(("0.0.0.0", 5678))  # listens on port 5678 for VSCode debugger
+debugpy.listen(("0.0.0.0", 5678))
 print("Waiting for debugger to attach...")
 debugpy.wait_for_client()
 print("Debugger attached, continuing...")

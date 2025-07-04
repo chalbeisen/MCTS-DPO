@@ -55,7 +55,7 @@ class MMCTS(MCTS):
             node_puct_values = torch.tensor([float("inf") if child.N == 0 else self._puct(child) for child in node.children])
             distribution = puct_distribution(node_puct_values, self.puct_inf_softening)
             #distribution = cap_distribution(distribution, (1+p_max)/len(node.children))
-            p_max = 1.1/len(node.children)
+            p_max = 0.8/len(node.children)
             distribution = cap_distribution(distribution, (1+p_max)/len(node.children))
 
             candidate_index = torch.multinomial(distribution, 1)

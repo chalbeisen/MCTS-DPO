@@ -11,6 +11,7 @@ import itertools
 import jsonlines
 from tqdm import tqdm
 from typing import Any, ClassVar
+import transformers
 
 import torch
 import torch.nn as nn
@@ -59,8 +60,8 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
 
     TRAINING_TYPE: ClassVar[str] = 'tsrl'
 
-    actor_model: deepspeed.DeepSpeedEngine
-    actor_reference_model: deepspeed.DeepSpeedEngine
+    actor_model: transformers.PreTrainedModel#deepspeed.DeepSpeedEngine
+    actor_reference_model: transformers.PreTrainedModel#deepspeed.DeepSpeedEngine
 
     ds_train_config: dict[str, Any]
     ds_eval_config: dict[str, Any]
@@ -78,11 +79,11 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
         self.global_step = 0
 
         self.init_models()
-        dist.barrier()
+        #dist.barrier()
         self.init_datasets()
-        dist.barrier()
-        self.init_engines()
-        dist.barrier()
+        #dist.barrier()
+        #self.init_engines()
+        #dist.barrier()
         
         self.generation_config = GenerationConfig(
             max_length=self.args.max_length,
@@ -97,7 +98,7 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
             pad_token_id=self.tokenizer.pad_token_id,
         )
         self.init_mcts_searcher()
-        dist.barrier()
+        #dist.barrier()
         self.init_logger()
 
         # Those value can be changed
@@ -113,7 +114,7 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
 
     def init_models(self) -> None:
         """Initialize model and tokenizer."""
-        if (
+        """if (
             self.ds_train_config is not None
             and self.ds_train_config['zero_optimization']['stage'] == 3
         ):
@@ -123,7 +124,7 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
             self.ds_eval_config is not None
             and self.ds_eval_config['zero_optimization']['stage'] == 3
         ):
-            self.dsechf_eval = HfDeepSpeedConfig(self.ds_eval_config)
+            self.dsechf_eval = HfDeepSpeedConfig(self.ds_eval_config)"""
 
         self.actor_model, self.tokenizer = load_pretrained_models(
             self.args.actor_model_name_or_path,
@@ -187,7 +188,7 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
                 self.eval_dataloader = DataLoader(
                     eval_dataset,
                     collate_fn=eval_dataset.get_collator(),
-                    sampler=DistributedSampler(eval_dataset, shuffle=True),
+                    sampler=None,#DistributedSampler(eval_dataset, shuffle=True),
                     batch_size=self.args.per_device_eval_batch_size,
                 )
             elif self.args.eval_datasets is not None and self.args.eval_split_ratio is None:
@@ -212,7 +213,7 @@ class TSRLTrainer(TrainerBase):  # pylint: disable=too-many-instance-attributes
         self.prompt_only_dataloader = DataLoader(
             prompt_only_dataset,
             collate_fn=prompt_only_dataset.get_collator(),
-            sampler=DistributedSampler(prompt_only_dataset, shuffle=True),
+            sampler=None,#DistributedSampler(prompt_only_dataset, shuffle=True),
             batch_size=self.args.per_device_prompt_batch_size,
         )
         

@@ -198,7 +198,7 @@ class StepLMConfig(SearchConfig):
             if (not self.get_tp_zero) or unique_text_list or prompt.startswith(PROMPT_BEGIN):
                 cur_max_new_tokens = (self.generation_config.max_length - input_ids.size(-1)) if n_actions == 1 else cur_max_new_tokens
                 cur_max_new_tokens = max(1, min(cur_max_new_tokens, self.generation_config.max_length - input_ids.size(-1)))
-                sequences = policy_model.module.generate(
+                sequences = policy_model.generate(
                     input_ids=input_ids.unsqueeze(0),
                     attention_mask=attention_mask.unsqueeze(0),
                     temperature=self.init_temperature if not len(state) else (self.temperature if random.random() < .75 else 1.0),
@@ -208,7 +208,7 @@ class StepLMConfig(SearchConfig):
                     pad_token_id=self.base_tokenizer.eos_token_id,
                     do_sample=True,
                     eos_token_id=terminators,
-                    synced_gpus=True,
+                    #synced_gpus=True,
                 )
             else:
                 cur_max_new_tokens = (self.generation_config.max_length - input_ids.size(-1)) if n_actions == 1 else cur_max_new_tokens
@@ -370,7 +370,7 @@ class StepLMConfig(SearchConfig):
             )
             ### Get logits from prompt + generated text, to give the model the full context, logits.shape: (batch_size, seq_len, vocab_size)
             ### Where seq_len is len of prompt + generated text
-            logits, hidden_states = self._get_logits(seq_input_ids, attention_mask=seq_attention_mask, model=policy_model.module)
+            logits, hidden_states = self._get_logits(seq_input_ids, attention_mask=seq_attention_mask, model=policy_model)
             ### Gather log probability (only give logits of generated text as input)
             log_probs = self._gather_log_probabilities(logits[input_ids.size(-1)-1:-1, :], gen_ids.to(logits.device))
             embs = hidden_states[input_ids.size(-1):]

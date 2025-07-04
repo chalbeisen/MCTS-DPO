@@ -137,7 +137,7 @@ def load_pretrained_models(  # pylint: disable=too-many-arguments
     /,
     model_max_length: int = 512,
     padding_side: Literal['left', 'right'] = 'right',
-    auto_device_mapping: bool = False,
+    auto_device_mapping: bool = True,
     dtype: torch.dtype | str | None = 'auto',
     *,
     cache_dir: str | os.PathLike | None = None,

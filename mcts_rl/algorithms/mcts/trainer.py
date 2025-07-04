@@ -474,8 +474,8 @@ class MMCTSTrainer(MCTSTrainer):
                 temperature_decay_ratio=self.args.mcts_temperature_decay_ratio,
                 consider_diversity=(not self.args.no_consider_diversity),
                 length_penalty=self.args.mcts_length_penalty,
-                #eval_method='log_probs',
-                eval_method='llm_judge',
+                eval_method='log_probs',
+                #eval_method='llm_judge',
                 #eval_method='',
         ))
 
@@ -546,7 +546,7 @@ class MMCTSTrainer(MCTSTrainer):
             
             if self.args.n_actions == 1: break
         
-        dist.barrier()
+        #dist.barrier()
 
         history['predicted_path'] = {'cur_node': cur_node.cpu_clone(), 'path': [node.id for node in path], 'reward': path[-1].value}
         self._save_to_pickle(f"{self.args.output_dir_pickle}/mmcts_history.pkl", history)

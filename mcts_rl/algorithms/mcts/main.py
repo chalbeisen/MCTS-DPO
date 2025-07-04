@@ -555,8 +555,8 @@ def parse_arguments() -> argparse.Namespace:
     parser = deepspeed.add_config_arguments(parser)
 
     args = parser.parse_args()
-    if args.local_rank == -1:
-        parser.error('`local_rank` not set, please use DeepSpeed launcher to run this script.')
+    """if args.local_rank == -1:
+        parser.error('`local_rank` not set, please use DeepSpeed launcher to run this script.')"""
     if args.fp16 and args.bf16:
         parser.error('Cannot use both bf16 and fp16 precision.')
     if args.bf16 and not is_torch_bf16_gpu_available():
@@ -574,21 +574,21 @@ def main() -> None:
     """Main training routine."""
     args = parse_arguments()
 
-    deepspeed.init_distributed()
+    #deepspeed.init_distributed()
 
-    args.global_rank = dist.get_rank()
-
-    if torch.cuda.is_available():
+    #args.global_rank = dist.get_rank()
+    args.device = 'cuda'
+    """if torch.cuda.is_available():
         args.device = torch.device('cuda', args.local_rank)
         torch.cuda.set_device(args.device)
     else:
         args.device = torch.device('cpu')
-        args.offload = 'all'
+        args.offload = 'all'"""
 
     seed_everything(args.seed)
     set_logger_level()
 
-    dist.barrier()
+    #dist.barrier()
 
     ds_train_config = get_deepspeed_train_config(
         micro_batch_size_per_gpu=args.per_device_train_batch_size,
@@ -609,7 +609,7 @@ def main() -> None:
     training_type = 'mmcts'
 
     if training_type == 'mmcts':
-        args.output_dir = f"{args.output_dir}/mmcts_saved_trees_llm_judge_cap_distr"
+        args.output_dir = f"{args.output_dir}/mmcts_saved_trees_log_probs_llama3"
         trainer = MMCTSTrainer(args, ds_train_config, ds_eval_config)
     else:
         args.output_dir = f"{args.output_dir}/mcts_saved_trees_llm_judge"
