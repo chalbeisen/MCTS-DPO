@@ -19,7 +19,7 @@ def puct_distribution(puct_values: torch.Tensor, inf_value_cap_coeff: float = 10
     # softmax
     puct_probabilities = torch.softmax(capped_puct, dim=0)
 
-    return puct_probabilities
+    return puct_probabilities.to(dtype=torch.float32)
 
 
 if __name__ == "__main__":

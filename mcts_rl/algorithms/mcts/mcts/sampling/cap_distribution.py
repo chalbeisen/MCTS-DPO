@@ -14,9 +14,11 @@ def cap_distribution(p: torch.Tensor, p_max: float, eps: float = 1e-12) -> torch
     Returns:
         torch.Tensor: New probability distribution with no element above p_max.
     """
+    #assert p_max * len(p) > 1, "p_max * nr_candidates should be bigger than 1"
+
     # Copy to avoid modifying input
     p_out = p.clone()
-
+    
     while True:
         # Find indices above p_max
         over_max = p_out >= p_max
@@ -31,6 +33,8 @@ def cap_distribution(p: torch.Tensor, p_max: float, eps: float = 1e-12) -> torch
         # Calculate the total mass in these indices
         over_sum = p_out[over_max].sum()
         # Calculate how much we need to redistribute
+        ### over_sum is here the sum of the probabilities that are > p_max
+        ### over_max is the amount of probabilites that are > p_max
         D = over_sum - over_max.sum() * p_max
 
         # If D is tiny or negative, no further redistribution is needed

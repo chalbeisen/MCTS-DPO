@@ -609,7 +609,7 @@ def main() -> None:
     training_type = 'mmcts'
 
     if training_type == 'mmcts':
-        args.output_dir = f"{args.output_dir}/mmcts_saved_trees_llm_judge"
+        args.output_dir = f"{args.output_dir}/mmcts_saved_trees_log_probs_cap_distr"
         trainer = MMCTSTrainer(args, ds_train_config, ds_eval_config)
     else:
         args.output_dir = f"{args.output_dir}/mcts_saved_trees_llm_judge"
