@@ -474,8 +474,8 @@ class MMCTSTrainer(MCTSTrainer):
                 temperature_decay_ratio=self.args.mcts_temperature_decay_ratio,
                 consider_diversity=(not self.args.no_consider_diversity),
                 length_penalty=self.args.mcts_length_penalty,
-                eval_method='log_probs',
-                #eval_method='llm_judge',
+                #eval_method='log_probs',
+                eval_method='llm_judge',
                 #eval_method='',
         ))
 
